@@ -7,27 +7,56 @@ tags:MIDI generator synthesis
 author:Saurav Plays Piano
 version:1.0.0
 
+// === MUSICAL SETTINGS ===
 slider1:0<0,11,1{C,C#,D,D#,E,F,F#,G,G#,A,A#,B}>Root Note
-slider2:0<0,6,1{Major,Minor,Dorian,Mixolydian,Lydian,Phrygian,Harmonic Minor}>Scale
+slider2:0<0,2,1{Major (bright happy),Minor (dark sad),Dorian (jazzy bittersweet)}>Scale
 slider3:0<0,11,1{I,II,III,IV,V,VI,VII,i,ii,iii,iv,v}>Current Chord (Roman Numeral)
+
+// === RANGE SETTINGS ===
 slider4:3<0,5,1{C1,C2,C3,C4,C5,C6}>Base Octave
 slider5:2<1,4,1>Octave Range
+
+// === PHRASE SETTINGS ===
 slider6:3<2,8,1>Min Phrase Length
 slider7:7<3,20,1>Max Phrase Length
-slider8:1<0,1,1{Off,On}>Use Passing Tones
+slider8:1<0,1,{Off,On}>Use Passing Tones
 slider9:0.5<0.1,1,0.05>Density (sparse to busy)
+slider13:0.2<0,1,0.05>8th Note Amount
+
+// === PERFORMANCE ===
 slider10:40<1,127,1>Min Velocity
 slider11:100<1,127,1>Max Velocity
-slider12:0<0,1,1{Off,On}>Enable Swing Notes
-slider13:0.2<0,1,0.05>8th Note Amount
-slider14:1<0,1,1{Off,On}>Enable Generation
-slider15:0<0,127,1>MIDI Channel (0=all)
-slider16:8<0,32,1>Init Jitter (burns)
+
+// === SYSTEM ===
+slider12:1<0,1,{Off,On}>Enable Generation
+slider14:0<0,127,1>MIDI Channel (0=all)
 
 in_pin:none
 out_pin:none
 
 @init
+// ============================================
+// CONSTANTS
+// ============================================
+
+// Weight constants for note selection
+CHORD_TONE_WEIGHT = 95;
+SCALE_TONE_WEIGHT = 4;
+PASSING_TONE_WEIGHT = 1;
+
+// Probability constants
+PASSING_TONE_PROB_ENABLED = 0.12;
+REPEAT_CHORD_PROB = 0.15;
+REPEAT_SCALE_PROB = 0.08;
+REPEAT_PASSING_PROB = 0.03;
+
+// Boundary extension in semitones
+SOFT_BOUNDARY_EXTENSION = 5;
+
+// ============================================
+// MEMORY LAYOUT - SCALE DEFINITIONS
+// ============================================
+
 // Scale intervals (semitones from root)
 // Major: W W H W W W H
 scale_major = 0; // Array index
@@ -43,26 +72,6 @@ scale_minor[4] = 7; scale_minor[5] = 8; scale_minor[6] = 10;
 scale_dorian = 20;
 scale_dorian[0] = 0; scale_dorian[1] = 2; scale_dorian[2] = 3; scale_dorian[3] = 5;
 scale_dorian[4] = 7; scale_dorian[5] = 9; scale_dorian[6] = 10;
-
-// Mixolydian: W W H W W H W
-scale_mixo = 30;
-scale_mixo[0] = 0; scale_mixo[1] = 2; scale_mixo[2] = 4; scale_mixo[3] = 5;
-scale_mixo[4] = 7; scale_mixo[5] = 9; scale_mixo[6] = 10;
-
-// Lydian: W W W H W W H
-scale_lydian = 40;
-scale_lydian[0] = 0; scale_lydian[1] = 2; scale_lydian[2] = 4; scale_lydian[3] = 6;
-scale_lydian[4] = 7; scale_lydian[5] = 9; scale_lydian[6] = 11;
-
-// Phrygian: H W W W H W W
-scale_phrygian = 50;
-scale_phrygian[0] = 0; scale_phrygian[1] = 1; scale_phrygian[2] = 3; scale_phrygian[3] = 5;
-scale_phrygian[4] = 7; scale_phrygian[5] = 8; scale_phrygian[6] = 10;
-
-// Harmonic Minor: W H W W H W+H H
-scale_harm_minor = 60;
-scale_harm_minor[0] = 0; scale_harm_minor[1] = 2; scale_harm_minor[2] = 3; scale_harm_minor[3] = 5;
-scale_harm_minor[4] = 7; scale_harm_minor[5] = 8; scale_harm_minor[6] = 11;
 
 // Chord degree offsets (scale degrees, 0-indexed)
 // Major chords: I, IV, V (degrees 0, 3, 4)
@@ -110,10 +119,6 @@ last_beat_pos = -1;
 last_beat_num = -1;
 samples_since_note = 0;
 phrase_complete_waiting_beat = 0;  // Flag: phrase done, waiting for beat boundary to start rest
-last_swing_pos = -1;  // Track last swing note position to avoid repeats
-swing_note_pending = 0;  // Flag: next phrase note should be played at swing timing
-pending_swing_note = -1;  // The MIDI note to play at swing timing
-pending_swing_velocity = 0;  // Velocity for the pending swing-timed note
 
 // Phrase generation state
 phrase_active = 0;              // Are we currently in a phrase?
@@ -134,14 +139,15 @@ last_was_passing = 0;
 // Pre-calculated phrase notes
 phrase_notes = 700;  // Array of MIDI notes for this phrase
 
-// Soft boundary extension - allow notes to exceed by this many semitones
-soft_boundary_extension = 5;
-
 // Convert octave slider (0-5 = C1-C6) to MIDI base note
 // C1 = MIDI 24, C2 = 36, C3 = 48, C4 = 60, C5 = 72, C6 = 84
 function get_base_note() (
   (slider4 + 1) * 12 + 12;  // slider4=0 -> 24 (C1), slider4=3 -> 60 (C4)
 );
+
+// ============================================
+// RANDOM NUMBER GENERATION
+// ============================================
 
 // Random seed - will be initialized on first block
 rand_state = 1;
@@ -214,33 +220,17 @@ function my_rand() local(result) (
     result = 0.5;  // Safe fallback
   );
   
-  // Store in debug history
-  
   result;
 );
 
-// Apply configurable jitter to the PRNG seed by mixing entropy and burning draws
-function apply_seed_jitter() local(burns, mix_seed, j) (
-  burns = slider16;
-  burns > 0 ? (
-    mix_seed = floor(time_precise() * 1000000) ^ (samplesblock * 2654435761) ^ (srate * 97) ^ rand_init_blocks ^ burns;
-    rand_state = (rand_state ^ mix_seed) | 1;
-    j = 0;
-    loop(burns,
-      my_rand();
-      j += 1;
-    );
-  );
-);
+// ============================================
+// SCALE & CHORD FUNCTIONS
+// ============================================
 
 function get_scale_base() (
   slider2 == 0 ? scale_major :
   slider2 == 1 ? scale_minor :
-  slider2 == 2 ? scale_dorian :
-  slider2 == 3 ? scale_mixo :
-  slider2 == 4 ? scale_lydian :
-  slider2 == 5 ? scale_phrygian :
-  scale_harm_minor;
+  scale_dorian;
 );
 
 function build_scale() local(i, base, root) (
@@ -315,6 +305,10 @@ function add_to_history(midi_note) (
   note_history_idx = (note_history_idx + 1) % note_history_size;
 );
 
+// ============================================
+// PHRASE GENERATION HELPERS
+// ============================================
+
 // Helper: Initialize phrase boundaries (hard and soft)
 function init_phrase_boundaries() local(base_note, top_note) (
   base_note = get_base_note();
@@ -323,18 +317,18 @@ function init_phrase_boundaries() local(base_note, top_note) (
   // Store in global temp variables
   temp_base_note = base_note;
   temp_top_note = top_note;
-  temp_soft_base = base_note - soft_boundary_extension;
-  temp_soft_top = top_note + soft_boundary_extension;
+  temp_soft_base = base_note - SOFT_BOUNDARY_EXTENSION;
+  temp_soft_top = top_note + SOFT_BOUNDARY_EXTENSION;
 );
 
-// Pick an ending note: weighted toward chord (50%), scale (35%), passing (15%)
-function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class, weight, total_weight, r, cumulative, i, selected, range) (
+// Pick an ending note: weighted toward chord tones (95%), scale tones (4%), passing tones (1%)
+function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class, weight, total_weight, random_val, cumulative, idx, selected, range) (
   base_note = get_base_note();
   top_note = base_note + (slider5 * 12);
   
   // Extend boundaries for soft limits
-  soft_base = base_note - soft_boundary_extension;
-  soft_top = top_note + soft_boundary_extension;
+  soft_base = base_note - SOFT_BOUNDARY_EXTENSION;
+  soft_top = top_note + SOFT_BOUNDARY_EXTENSION;
 
   num_available = 0;
   total_weight = 0;
@@ -343,18 +337,18 @@ function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class
   // Use soft boundaries for endpoint selection
   midi_note = soft_base;
   range = soft_top - soft_base + 1;
-  i = 0;
+  idx = 0;
   loop(range,
     (midi_note <= soft_top) ? (
       note_class = midi_note % 12;
       weight = 0;
       
       is_chord_tone(note_class) ? (
-        weight = 95;
+        weight = CHORD_TONE_WEIGHT;
       ) : is_scale_tone(note_class) ? (
-        weight = 4;
+        weight = SCALE_TONE_WEIGHT;
       ) : (
-        weight = 1;
+        weight = PASSING_TONE_WEIGHT;
       );
       
       available_notes[num_available] = midi_note;
@@ -363,32 +357,32 @@ function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class
       num_available += 1;
       midi_note += 1;
     );
-    i += 1;
+    idx += 1;
   );
   
-  // Normalize
-  i = 0;
+  // Normalize weights
+  idx = 0;
   loop(num_available,
-    note_weights[i] = note_weights[i] / total_weight;
-    i += 1;
+    note_weights[idx] = note_weights[idx] / total_weight;
+    idx += 1;
   );
   
   // Weighted random selection
-  r = my_rand();
+  random_val = my_rand();
   cumulative = 0;
   selected = available_notes[0];
-  i = 0;
+  idx = 0;
   done = 0;
   loop(num_available,
     done ? (
-      i = num_available;  // Skip remaining iterations
+      idx = num_available;  // Skip remaining iterations
     ) : (
-      cumulative += note_weights[i];
-      r <= cumulative ? (
-        selected = available_notes[i];
+      cumulative += note_weights[idx];
+      random_val <= cumulative ? (
+        selected = available_notes[idx];
         done = 1;
       );
-      i += 1;
+      idx += 1;
     );
   );
   
@@ -411,8 +405,6 @@ function pick_and_validate_endpoint() local(retry_count) (
   
   // Pick ending note
   phrase_end_note = pick_phrase_endpoint();
-  
-  // Log endpoint distances from hard boundaries
   
   // Avoid repeating same endpoint consecutively
   retry_count = 0;
@@ -440,7 +432,7 @@ function pick_and_validate_endpoint() local(retry_count) (
 );
 
 // Helper: Determine phrase direction based on available room
-function determine_phrase_direction() local(room_above, room_below, semitones_needed, direction, rdir) (
+function determine_phrase_direction() local(room_above, room_below, semitones_needed, direction, random_direction) (
   room_above = temp_top_note - phrase_end_note;
   room_below = phrase_end_note - temp_base_note;
   
@@ -451,8 +443,8 @@ function determine_phrase_direction() local(room_above, room_below, semitones_ne
   room_below >= semitones_needed ? (
     room_above >= semitones_needed ? (
       // Both directions work - pick randomly
-      rdir = my_rand();
-      direction = rdir < 0.5 ? 1 : -1;
+      random_direction = my_rand();
+      direction = random_direction < 0.5 ? 1 : -1;
     ) : (
       // Only room below - must go UP
       direction = 1;
@@ -520,13 +512,11 @@ function find_scale_indices(temp_count, direction) local(i, endpoint_idx, start_
 
 // Helper: Build phrase notes with passing tones, repeats, and direction changes
 function build_phrase_notes(direction, temp_count) local(i, note_idx, current_direction, steps_since_dir_change, prev_midi_note, prev_note_type, build_failed, midi_note, note_class, curr_note_type, use_repeat, passing_candidate, passing_class, distance_from_top, distance_from_bottom, near_top_boundary, near_bottom_boundary, min_steps_between, dir_change_prob, skip_amount, passed_endpoint, overshoot_limit, endpoint_overshoot) (
-  // Clear debug notes
-  
-  // Probabilities
-  passing_tone_prob = slider8 == 1 ? 0.12 : 0;
-  repeat_chord_prob = 0.15;
-  repeat_scale_prob = 0.08;
-  repeat_passing_prob = 0.03;
+  // Note generation probabilities
+  passing_tone_prob = slider8 == 1 ? PASSING_TONE_PROB_ENABLED : 0;
+  repeat_chord_prob = REPEAT_CHORD_PROB;
+  repeat_scale_prob = REPEAT_SCALE_PROB;
+  repeat_passing_prob = REPEAT_PASSING_PROB;
   
   // For longer phrases, allow overshooting the endpoint and returning
   // Shorter phrases (<=8 notes): no overshoot
@@ -702,8 +692,8 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
     // Step 3: Determine phrase length
     max_phrase = min(slider7, slider5 * 7);
     min_phrase = min(slider6, max_phrase);
-    r_len = my_rand();
-    phrase_length = min_phrase + floor(r_len * (max_phrase - min_phrase + 1));
+    random_length = my_rand();
+    phrase_length = min_phrase + floor(random_length * (max_phrase - min_phrase + 1));
     
     // Step 4: Determine direction
     direction = determine_phrase_direction();
@@ -742,14 +732,18 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
   );
 );
 
+// ============================================
+// MIDI OUTPUT FUNCTIONS
+// ============================================
+
 function send_note_on(note, vel) (
-  midisend(0, $x90 + (slider15 > 0 ? slider15 - 1 : 0), note, vel);
+  midisend(0, $x90 + (slider14 > 0 ? slider14 - 1 : 0), note, vel);
   note_playing = note;
 );
 
 function send_note_off() (
   note_playing > 0 ? (
-    midisend(0, $x80 + (slider15 > 0 ? slider15 - 1 : 0), note_playing, 0);
+    midisend(0, $x80 + (slider14 > 0 ? slider14 - 1 : 0), note_playing, 0);
     note_playing = 0;
   );
 );
@@ -763,36 +757,20 @@ build_chord_tones();
 // This helps ensure different seeds on each plugin instance
 rand_initialized == 0 ? (
   seed_random();
-  apply_seed_jitter();
 ) : (
   // Check if we should re-seed (e.g., user stopped and restarted playback)
   abs(play_position - last_play_position) > 10 ? (
     rand_init_blocks = 0;  // Reset to re-accumulate entropy
     rand_initialized = 0;
     seed_random();
-    apply_seed_jitter();
   );
   last_play_position = play_position;
 );
 
-slider14 == 1 ? ( // Generation enabled
+slider12 == 1 ? ( // Generation enabled
   // Get current beat position (quarter notes)
   beat_num = floor(beat_position);
   beat_pos = floor(beat_position * 4) / 4; // Quantize to 16th notes
-  
-  // Check for swing note opportunity (triplet swing = 2/3 of beat)
-  swing_pos = floor((beat_position * 3) + 2) / 3;  // Position of next swing opportunity (2/3 of beat)
-  swing_active = (beat_position * 3) - floor(beat_position * 3);  // Fractional part in triplet divisions
-  
-  // If swing timing is active and we have a pending note to play at swing timing
-  // Trigger window: between 0.6 and 0.75 of the triplet (around 2/3 of the beat)
-  slider12 == 1 && swing_active >= 0.6 && swing_active < 0.75 && swing_note_pending ? (
-    swing_note_pending = 0;
-    send_note_off();
-    send_note_on(pending_swing_note, pending_swing_velocity);
-    last_note = pending_swing_note;
-    phrase_note_count += 1;
-  );
   
   // Check if we've crossed a beat boundary (quarter note)
   beat_num != last_beat_num ? (
@@ -840,7 +818,6 @@ slider14 == 1 ? ( // Generation enabled
         inner_rest_prob = 0.6 * (1 - slider9);
         (phrase_note_count > 0 && my_rand() < inner_rest_prob) ? (
           send_note_off();
-          swing_note_pending = 0;  // Cancel any pending swing note
         ) : (
           send_note_off();
 
@@ -874,28 +851,16 @@ slider14 == 1 ? ( // Generation enabled
           // Check if this note should be an 8th note (based on slider13)
           is_eighth_note = my_rand() < slider13;
           
-          // If it's an 8th note AND swing is enabled, schedule for swing timing
-          is_eighth_note && slider12 == 1 ? (
-            // Schedule this note to play at swing timing instead
-            swing_note_pending = 1;
-            pending_swing_note = new_note;
-            pending_swing_velocity = velocity;
-            // Don't send note yet - wait for swing timing
-          ) : (
-            // Play note immediately at beat
-            send_note_on(new_note, velocity);
-            last_note = new_note;
-            phrase_note_count += 1;
-          );
-
-          // Record to debug history
+          // Play note at beat (8th notes play immediately, no swing)
+          send_note_on(new_note, velocity);
+          last_note = new_note;
+          phrase_note_count += 1;
         );
       ) : (
         // Phrase complete - wait for beat boundary before transitioning to rest
         phrase_active = 0;
         phrase_direction = 0;
         phrase_complete_waiting_beat = 1;
-        swing_note_pending = 0;  // Cancel any pending swing note
         send_note_off();
       );
     ) : (
