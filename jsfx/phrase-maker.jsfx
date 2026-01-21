@@ -58,6 +58,12 @@ INNER_REST_BASE = 0.6;  // Base inner rest probability scale at low density
 // Phrase movement constants (controls note-to-note stepping behavior)
 MAX_JUMP = 4;  // Maximum scale notes to jump; longer jumps have lower probability
 
+// Phase balance constants (controls exploration vs resolution)
+EXPLORATION_RATIO = 0.65;     // Fraction of phrase spent exploring (0.5-0.8)
+RESOLUTION_START_DISTANCE = 6; // Start resolving when within N scale steps of target
+RESOLUTION_STEP_BIAS = 0.7;   // Probability of stepping toward target in resolution (0.5-1.0)
+APPROACH_FROM_BELOW_PROB = 0.6; // Probability of approaching final note from below
+
 // Rest behavior constants (controls between-phrase rest lengths)
 REST_MAX_BASE = 8;      // Base max rest (beats) at low density
 REST_MAX_SLOPE = 6;     // How much max rest decreases as density increases
@@ -510,254 +516,291 @@ function build_temp_scale_array() local(midi_note, note_class, temp_count) (
   temp_count;  // Return count
 );
 
-// Helper: Find endpoint and start indices in scale array
-function find_scale_indices(temp_count, direction) local(i, endpoint_idx, start_idx, steps_needed) (
-  // Find endpoint index
-  endpoint_idx = -1;
-  i = 0;
-  loop(temp_count,
-    temp_scale_notes[i] == phrase_end_note ? endpoint_idx = i;
-    i += 1;
-  );
-  
-  // Store for return
-  temp_endpoint_idx = endpoint_idx;
-  
-  endpoint_idx < 0 ? (
-    // Failed to find endpoint
-    temp_start_idx = -1;
-    0;  // Return failure
-  ) : (
-    // Calculate start index
-    steps_needed = floor(phrase_length * 1.5);
-    
-    direction > 0 ? (
-      start_idx = max(0, endpoint_idx - steps_needed);
-    ) : (
-      start_idx = min(temp_count - 1, endpoint_idx + steps_needed);
-    );
-    
-    temp_start_idx = start_idx;
-    
-    // Check validity
-    (start_idx >= 0 && start_idx < temp_count) ? 1 : 0;
-  );
+// Helper: Validate that we have enough scale notes to build a phrase
+function validate_scale_array(temp_count) (
+  // Just need enough notes to work with
+  temp_count >= 7 ? 1 : 0;
 );
 
-// Helper: Build phrase notes with passing tones, repeats, and direction changes
-function build_phrase_notes(direction, temp_count) local(i, note_idx, current_direction, steps_since_dir_change, prev_midi_note, prev_note_type, build_failed, midi_note, note_class, curr_note_type, use_repeat, passing_candidate, passing_class, distance_from_top, distance_from_bottom, near_top_boundary, near_bottom_boundary, min_steps_between, dir_change_prob, skip_amount, passed_endpoint, overshoot_limit, endpoint_overshoot) (
-  // Note generation probabilities
-  passing_tone_prob = 0; // slider8 == 1 ? PASSING_TONE_PROB_ENABLED : 0;
-  repeat_chord_prob = REPEAT_CHORD_PROB;
-  repeat_scale_prob = REPEAT_SCALE_PROB;
-  repeat_passing_prob = REPEAT_PASSING_PROB;
-  
-  // For longer phrases, allow overshooting the endpoint and returning
-  // Shorter phrases (<=8 notes): no overshoot
-  // Medium phrases (9-14): modest overshoot
-  // Long phrases (15+): significant overshoot
-  endpoint_overshoot = 0;
-  phrase_length <= 8 ? (
-    endpoint_overshoot = 0;
-  ) : phrase_length <= 14 ? (
-    endpoint_overshoot = 2 + floor(my_rand() * 2);
-  ) : (
-    endpoint_overshoot = 3 + floor(my_rand() * 3);
-  );
-  
-  // Initialize build state
-  phrase_note_count = 0;
+// Helper: Find index of a MIDI note in the temp_scale_notes array
+function find_scale_index(midi_note, temp_count) local(i, found_idx) (
+  found_idx = -1;
   i = 0;
-  build_failed = 0;
+  loop(temp_count,
+    temp_scale_notes[i] == midi_note ? found_idx = i;
+    i += 1;
+  );
+  found_idx;
+);
+
+// Helper: Find nearest scale note index to a target MIDI note
+function find_nearest_scale_index(target_midi, temp_count) local(i, best_idx, best_dist, dist) (
+  best_idx = 0;
+  best_dist = 999;
+  i = 0;
+  loop(temp_count,
+    dist = abs(temp_scale_notes[i] - target_midi);
+    dist < best_dist ? (
+      best_dist = dist;
+      best_idx = i;
+    );
+    i += 1;
+  );
+  best_idx;
+);
+
+// Phase 1: Exploration - free movement with direction changes
+function build_exploration_phase(start_idx, num_notes, temp_count)
+    local(i, note_idx, current_direction, steps_since_dir_change, prev_midi_note,
+          midi_note, note_class, distance_from_top, distance_from_bottom,
+          near_top_boundary, near_bottom_boundary, min_steps_between,
+          dir_change_prob, skip_amount, use_repeat, prev_note_type, curr_note_type) (
+
+  note_idx = start_idx;
+  current_direction = phrase_direction;
+  steps_since_dir_change = 0;
   prev_midi_note = -1;
   prev_note_type = 0;
-  note_idx = temp_start_idx;
-  current_direction = direction;
-  steps_since_dir_change = 99;
-  passed_endpoint = 0;
-  overshoot_limit = temp_endpoint_idx + (direction > 0 ? endpoint_overshoot : -endpoint_overshoot);
-  
-  loop(phrase_length,
-    build_failed == 0 ? (
-      // Check bounds
-      (note_idx < 0 || note_idx >= temp_count) ? (
-        build_failed = 1;
-        phrase_note_count = -1;
+
+  i = 0;
+  loop(num_notes,
+    // Bounds check
+    note_idx = max(0, min(temp_count - 1, note_idx));
+
+    midi_note = temp_scale_notes[note_idx];
+    note_class = midi_note % 12;
+
+    // Check proximity to boundaries
+    distance_from_top = temp_soft_top - midi_note;
+    distance_from_bottom = midi_note - temp_soft_base;
+    near_top_boundary = distance_from_top <= 3;
+    near_bottom_boundary = distance_from_bottom <= 3;
+
+    // Force direction change at boundaries
+    near_top_boundary && current_direction > 0 ? (
+      current_direction = -1;
+      steps_since_dir_change = 0;
+    );
+    near_bottom_boundary && current_direction < 0 ? (
+      current_direction = 1;
+      steps_since_dir_change = 0;
+    );
+
+    // Random direction changes based on phrase length
+    !near_top_boundary && !near_bottom_boundary ? (
+      phrase_length <= 8 ? (
+        min_steps_between = 4 + floor(my_rand() * 3);
+        dir_change_prob = 0.2;
+      ) : phrase_length <= 14 ? (
+        min_steps_between = 3 + floor(my_rand() * 2);
+        dir_change_prob = 0.3;
       ) : (
-        // Consider direction change (not on first or last note)
-        (i > 0 && i < phrase_length - 1) ? (
-          // Get current note for boundary check
-          midi_note = temp_scale_notes[note_idx];
-          
-          // Check proximity to boundaries
-          distance_from_top = temp_soft_top - midi_note;
-          distance_from_bottom = midi_note - temp_soft_base;
-          
-          near_top_boundary = distance_from_top <= 3;
-          near_bottom_boundary = distance_from_bottom <= 3;
-          
-          // Force direction change if at boundary
-          near_top_boundary ? (
-            current_direction > 0 ? (
-              current_direction = -1;
-              steps_since_dir_change = 0;
-            );
-          );
-          near_bottom_boundary ? (
-            current_direction < 0 ? (
-              current_direction = 1;
-              steps_since_dir_change = 0;
-            );
-          );
-          
-          // Check if we've passed the overshoot limit - force turnaround
-          passed_endpoint == 0 && endpoint_overshoot > 0 ? (
-            direction > 0 ? (
-              note_idx >= overshoot_limit ? (
-                passed_endpoint = 1;
-                current_direction = -1;
-                steps_since_dir_change = 0;
-              );
-            ) : (
-              note_idx <= overshoot_limit ? (
-                passed_endpoint = 1;
-                current_direction = 1;
-                steps_since_dir_change = 0;
-              );
-            );
-          );
-          
-          // Normal direction change logic
-          !near_top_boundary && !near_bottom_boundary && passed_endpoint == 0 ? (
-            phrase_length <= 8 ? (
-              min_steps_between = 4 + floor(my_rand() * 3);
-              dir_change_prob = 0.2;
-            ) : phrase_length <= 14 ? (
-              min_steps_between = 3 + floor(my_rand() * 2);
-              dir_change_prob = 0.3;
-            ) : (
-              min_steps_between = 2 + floor(my_rand() * 2);
-              dir_change_prob = 0.4;
-            );
-            
-            (steps_since_dir_change >= min_steps_between) ? (
-              my_rand() < dir_change_prob ? (
-                current_direction = -current_direction;
-                steps_since_dir_change = 0;
-              );
-            );
-          );
-        );
-        
-        // Get the base scale note
-        midi_note = temp_scale_notes[note_idx];
-        note_class = midi_note % 12;
-        
-        // Determine note type
-        curr_note_type = is_chord_tone(note_class) ? 1 : 2;
-        
-        // Check for repeat
-        use_repeat = 0;
-        (i > 0 && i < phrase_length - 1 && prev_midi_note > 0) ? (
-          prev_note_type == 1 ? (
-            my_rand() < repeat_chord_prob ? use_repeat = 1;
-          ) : prev_note_type == 2 ? (
-            my_rand() < repeat_scale_prob ? use_repeat = 1;
-          ) : prev_note_type == 3 ? (
-            my_rand() < repeat_passing_prob ? use_repeat = 1;
-          );
-        );
-        
-        use_repeat ? (
-          midi_note = prev_midi_note;
-          curr_note_type = prev_note_type;
-        ) : (
-          // Check for passing tone
-          (i > 0 && i < phrase_length - 1) ? (
-            my_rand() < passing_tone_prob ? (
-              passing_candidate = direction > 0 ? midi_note - 1 : midi_note + 1;
-              passing_class = passing_candidate % 12;
-              (!is_scale_tone(passing_class) && passing_candidate >= temp_soft_base && passing_candidate <= temp_soft_top) ? (
-                midi_note = passing_candidate;
-                curr_note_type = 3;
-              );
-            );
-          );
-        );
-        
-        // Check soft bounds
-        (midi_note < temp_soft_base || midi_note > temp_soft_top) ? (
-          build_failed = 1;
-          phrase_note_count = -1;
-        ) : (
-          phrase_notes[i] = midi_note;
-          prev_midi_note = midi_note;
-          prev_note_type = curr_note_type;
-          i += 1;
-          steps_since_dir_change += 1;
-          
-          // Advance note_idx: random bias toward smaller jumps via squared random
-          skip_amount = 1 + floor(my_rand() * my_rand() * MAX_JUMP);
-          current_direction > 0 ? (
-            note_idx += skip_amount;
-          ) : (
-            note_idx -= skip_amount;
-          );
+        min_steps_between = 2 + floor(my_rand() * 2);
+        dir_change_prob = 0.4;
+      );
+
+      steps_since_dir_change >= min_steps_between ? (
+        my_rand() < dir_change_prob ? (
+          current_direction = -current_direction;
+          steps_since_dir_change = 0;
         );
       );
     );
+
+    // Determine note type
+    curr_note_type = is_chord_tone(note_class) ? 1 : 2;
+
+    // Check for repeat (not on first note)
+    use_repeat = 0;
+    (i > 0 && prev_midi_note > 0) ? (
+      prev_note_type == 1 ? (
+        my_rand() < REPEAT_CHORD_PROB ? use_repeat = 1;
+      ) : prev_note_type == 2 ? (
+        my_rand() < REPEAT_SCALE_PROB ? use_repeat = 1;
+      );
+    );
+
+    use_repeat ? (
+      phrase_notes[i] = prev_midi_note;
+    ) : (
+      phrase_notes[i] = midi_note;
+      prev_midi_note = midi_note;
+      prev_note_type = curr_note_type;
+
+      // Advance with random skip
+      skip_amount = 1 + floor(my_rand() * my_rand() * MAX_JUMP);
+      note_idx += current_direction * skip_amount;
+    );
+
+    steps_since_dir_change += 1;
+    i += 1;
   );
-  
-  // Return success/failure
-  phrase_note_count >= 0 ? 1 : 0;
+
+  // Return the final note_idx for resolution phase to use
+  note_idx;
+);
+
+// Phase 2: Resolution - guided movement toward the endpoint
+function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, num_notes, temp_count)
+    local(i, note_idx, target_idx, notes_remaining, distance_to_target,
+          step_direction, midi_note, note_class, should_step_toward,
+          skip_amount, approach_from_below, penultimate_idx) (
+
+  // Decide approach direction for final note
+  approach_from_below = my_rand() < APPROACH_FROM_BELOW_PROB;
+
+  note_idx = start_note_idx;
+  target_idx = end_note_idx;
+
+  i = 0;
+  loop(num_notes,
+    notes_remaining = num_notes - i;
+
+    // Bounds check
+    note_idx = max(0, min(temp_count - 1, note_idx));
+
+    // Last note: force to endpoint
+    notes_remaining == 1 ? (
+      phrase_notes[start_phrase_idx + i] = phrase_end_note;
+    ) : (
+      // Second-to-last note: set up the approach
+      notes_remaining == 2 ? (
+        // Position one step away from target in the chosen approach direction
+        approach_from_below ? (
+          penultimate_idx = max(0, target_idx - 1);
+        ) : (
+          penultimate_idx = min(temp_count - 1, target_idx + 1);
+        );
+        note_idx = penultimate_idx;
+        midi_note = temp_scale_notes[note_idx];
+        phrase_notes[start_phrase_idx + i] = midi_note;
+      ) : (
+        // Earlier resolution notes: progressively move toward target
+        distance_to_target = target_idx - note_idx;
+
+        // Determine if we should step toward target
+        should_step_toward = my_rand() < RESOLUTION_STEP_BIAS;
+
+        // Calculate direction needed to reach target
+        distance_to_target > 0 ? (
+          step_direction = 1;
+        ) : distance_to_target < 0 ? (
+          step_direction = -1;
+        ) : (
+          step_direction = 0;
+        );
+
+        // If we're far from target or should step toward it, move in that direction
+        (abs(distance_to_target) > RESOLUTION_START_DISTANCE || should_step_toward) ? (
+          // Step toward target, but allow some variation in step size
+          skip_amount = 1 + floor(my_rand() * 2);
+          // Don't overshoot the target area
+          skip_amount = min(skip_amount, max(1, abs(distance_to_target) - 2));
+          note_idx += step_direction * skip_amount;
+        ) : (
+          // Close to target, allow small wandering
+          my_rand() < 0.3 ? (
+            note_idx += (my_rand() < 0.5 ? 1 : -1);
+          );
+        );
+
+        // Bounds check
+        note_idx = max(0, min(temp_count - 1, note_idx));
+
+        midi_note = temp_scale_notes[note_idx];
+        phrase_notes[start_phrase_idx + i] = midi_note;
+      );
+    );
+
+    i += 1;
+  );
+);
+
+// Main phrase builder: Two-phase approach (exploration + resolution)
+function build_phrase_notes(direction, temp_count)
+    local(exploration_notes, resolution_notes, start_idx, end_idx,
+          final_exploration_idx, current_note_idx) (
+
+  // Calculate phase lengths
+  exploration_notes = floor(phrase_length * EXPLORATION_RATIO);
+  exploration_notes = max(1, exploration_notes);  // At least 1 exploration note
+  resolution_notes = phrase_length - exploration_notes;
+  resolution_notes = max(1, resolution_notes);    // At least 1 resolution note
+
+  // Ensure we don't exceed phrase length
+  (exploration_notes + resolution_notes) > phrase_length ? (
+    exploration_notes = phrase_length - resolution_notes;
+  );
+
+  // Find endpoint index in scale array
+  end_idx = find_scale_index(phrase_end_note, temp_count);
+  end_idx < 0 ? (
+    // Endpoint not exactly on scale, find nearest
+    end_idx = find_nearest_scale_index(phrase_end_note, temp_count);
+  );
+
+  // Calculate starting position based on direction and phrase length
+  // Start far enough away to allow exploration
+  start_idx = end_idx - (direction * floor(phrase_length * 1.2));
+  start_idx = max(0, min(temp_count - 1, start_idx));
+
+  // Phase 1: Exploration
+  final_exploration_idx = build_exploration_phase(start_idx, exploration_notes, temp_count);
+
+  // Phase 2: Resolution - start from where exploration ended
+  current_note_idx = max(0, min(temp_count - 1, final_exploration_idx));
+  build_resolution_phase(current_note_idx, end_idx, exploration_notes, resolution_notes, temp_count);
+
+  // Mark success
+  phrase_note_count = 0;
+  1;  // Return success
 );
 
 // Build entire phrase by walking scale from calculated start to pre-selected end
 function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, temp_count, success) (
   phrase_build_counter += 1;
-  
+
   // Step 1: Initialize boundaries
   init_phrase_boundaries();
-  
-  // Step 2: Pick and validate endpoint
+
+  // Step 2: Pick and validate endpoint (guaranteed chord tone)
   pick_and_validate_endpoint() ? (
     // Endpoint is valid chord tone, continue
-    
+
     // Step 3: Determine phrase length
     max_phrase = min(slider7, slider5 * 7);
     min_phrase = min(slider6, max_phrase);
     random_length = my_rand();
     phrase_length = min_phrase + floor(random_length * (max_phrase - min_phrase + 1));
-    
-    // Step 4: Determine direction
+
+    // Step 4: Determine direction (which way to start exploring)
     direction = determine_phrase_direction();
     phrase_direction = direction;
-    
+
     // Step 5: Build temp scale array
     temp_count = build_temp_scale_array();
-    
-    // Step 6: Find scale indices
-    find_scale_indices(temp_count, direction) ? (
-      // Valid indices found
-      
-      // Step 7: Build phrase notes
+
+    // Step 6: Validate we have enough notes
+    validate_scale_array(temp_count) ? (
+
+      // Step 7: Build phrase using two-phase approach
+      // Phase 1 (exploration) + Phase 2 (resolution to endpoint)
       success = build_phrase_notes(direction, temp_count);
-      
+
       // Step 8: Finalize
       success ? (
         phrase_active = 1;
         phrase_note_count = 0;
         last_note = -1;
       ) : (
-        // Build failed - out of bounds
+        // Build failed
         phrase_active = 0;
         between_phrase_rest = 1;
       );
     ) : (
-      // Failed to find valid indices
+      // Not enough scale notes
       phrase_active = 0;
       between_phrase_rest = 1;
-      phrase_note_count = -1;
     );
   ) : (
     // Failed to find chord tone endpoint
