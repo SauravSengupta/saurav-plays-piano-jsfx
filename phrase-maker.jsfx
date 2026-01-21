@@ -853,9 +853,7 @@ slider12 == 1 ? ( // Generation enabled
         rest_weight = get_note_selection_weight(new_note);
         rest_multiplier = rest_weight / CHORD_ROOT_WEIGHT; // Normalize to [0,1] with root as 1.0
         inner_rest_prob = max(0, min(1, base_inner_rest * rest_multiplier));
-        (phrase_note_count > 0 && my_rand() < inner_rest_prob) ? (
-          send_note_off();
-        ) : (
+        (phrase_note_count == 0 || my_rand() >= inner_rest_prob) ? (
           send_note_off();
 
           // Play the next note from pre-calculated phrase
@@ -897,7 +895,7 @@ slider12 == 1 ? ( // Generation enabled
         phrase_active = 0;
         phrase_direction = 0;
         phrase_complete_waiting_beat = 1;
-        send_note_off();
+        // send_note_off();
       );
     ) : (
       // Not in phrase and no rest pending - start a phrase (always, not randomly)
