@@ -36,7 +36,7 @@ https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/refs/heads/main/in
 
 **[midi-note-dropper.jsfx](jsfx/midi-note-dropper.jsfx)**
 
-A simple but powerful tool that probabilistically drops incoming MIDI note-on events. Think of it as a "MIDI gate" based on random chance rather than velocity or other parameters.
+A simple tool that probabilistically drops incoming MIDI note-on events. Think of it as a "MIDI gate" based on random chance rather than velocity or other parameters.
 
 #### Parameters
 
