@@ -19,7 +19,7 @@ slider5:2<1,4,1>Octave Range
 // === PHRASE SETTINGS ===
 slider6:3<2,8,1>Min Phrase Length
 slider7:7<3,20,1>Max Phrase Length
-slider8:1<0,1,{Off,On}>Use Passing Tones
+// slider8:1<0,1,{Off,On}>Use Passing Tones
 slider9:0.5<0.1,1,0.05>Density (sparse to busy)
 slider13:0.2<0,1,0.05>8th Note Amount
 
@@ -545,7 +545,7 @@ function find_scale_indices(temp_count, direction) local(i, endpoint_idx, start_
 // Helper: Build phrase notes with passing tones, repeats, and direction changes
 function build_phrase_notes(direction, temp_count) local(i, note_idx, current_direction, steps_since_dir_change, prev_midi_note, prev_note_type, build_failed, midi_note, note_class, curr_note_type, use_repeat, passing_candidate, passing_class, distance_from_top, distance_from_bottom, near_top_boundary, near_bottom_boundary, min_steps_between, dir_change_prob, skip_amount, passed_endpoint, overshoot_limit, endpoint_overshoot) (
   // Note generation probabilities
-  passing_tone_prob = slider8 == 1 ? PASSING_TONE_PROB_ENABLED : 0;
+  passing_tone_prob = 0; // slider8 == 1 ? PASSING_TONE_PROB_ENABLED : 0;
   repeat_chord_prob = REPEAT_CHORD_PROB;
   repeat_scale_prob = REPEAT_SCALE_PROB;
   repeat_passing_prob = REPEAT_PASSING_PROB;

@@ -86,7 +86,6 @@ A basic generative phrase engine that tries to create melodic phrases based on m
 
 - **Min Phrase Length** (2-8): Shortest phrase length in notes
 - **Max Phrase Length** (3-20): Longest phrase length in notes
-- **Use Passing Tones** (Off/On): Allow chromatic passing tones between scale tones
 - **Density** (0.1-1.0): How busy the phrase is (sparse → packed with notes)
 - **8th Note Amount** (0-1.0): Proportion of quick 8th-note figures in the phrase
 
@@ -105,7 +104,6 @@ A basic generative phrase engine that tries to create melodic phrases based on m
 1. **Scale Awareness**: Melodies stay within the selected scale and root note
 2. **Chord Prioritization**: Chord tones of the "Current Chord" setting are weighted heavily in note selection
 3. **Voice Leading**: The engine tracks recent notes and penalizes repetition to create smooth, varied melodies
-4. **Passing Tones**: When enabled, chromatic tones can connect scale tones naturally
 5. **Phrase Building**: Each phrase starts and ends on musically sensible notes (usually chord tones or scale roots)
 6. **Randomization**: I'm still working on seeding the random number generator. For now, it will play the same set of phrases each time you restart the plugin
 
