@@ -1,4 +1,17 @@
-desc: MIDI Note Dropper
+// MIDI Note Dropper
+// Copyright (c) 2026 Saurav Plays Piano
+// Licensed under the MIT License
+//
+// Probabilistically drops incoming MIDI note-on events based on a percentage.
+// Use this to thin out dense MIDI patterns, create rhythmic interest, or add
+// controlled randomness to arpeggios and sequences.
+//
+// All other MIDI messages (CC, note-off, etc.) pass through unchanged.
+
+desc:MIDI Note Dropper
+tags:MIDI utility
+author:Saurav Plays Piano
+version:1.0.0
 slider1:50<0,100,1>Chance to Play %
 
 @init
