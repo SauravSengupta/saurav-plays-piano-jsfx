@@ -4,13 +4,16 @@ A collection of custom JSFX plugins for **Reaper**, designed and developed by [S
 
 This is a collection of Reaper plugins I wrote to help me with some of my ambient / neo-classical piano productions. I am releasing them as open-source for other Reaper users to explore, modify, and use in their own creative work.
 
-> ⚠️ **Note:** This repository is currently in **Alpha**. The code is experimental, parameters may change, and features are being tested in my studio workflow. Use with caution in critical projects.
+> ⚠️ **Note:** This repository is currently in **Alpha**. The code is experimental, parameters may change. Use with caution in critical projects.
 
 ## Installation
 
 ### Option 1: ReaPack (Recommended)
 
-Coming soon. *(I am currently finalizing the `index.xml` for one-click installation via ReaPack.)*
+1. In Reaper, go to **Extensions → ReaPack → Import repositories...**
+2. Paste this URL: `https://raw.githubusercontent.com/SauravPlaysPiano/JSFX/main/index.xml`
+3. Click OK and ReaPack will download the latest versions automatically.
+4. Browse available plugins via **Extensions → ReaPack → Browse packages**
 
 ### Option 2: Manual Install
 
