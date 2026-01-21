@@ -1,0 +1,1324 @@
+desc:Saurav's Generative Phrase Maker
+//author: Saurav
+//version: 1.0
+
+slider1:0<0,11,1{C,C#,D,D#,E,F,F#,G,G#,A,A#,B}>Root Note
+slider2:0<0,6,1{Major,Minor,Dorian,Mixolydian,Lydian,Phrygian,Harmonic Minor}>Scale
+slider3:0<0,11,1{I,II,III,IV,V,VI,VII,i,ii,iii,iv,v}>Current Chord (Roman Numeral)
+slider4:3<0,5,1{C1,C2,C3,C4,C5,C6}>Base Octave
+slider5:2<1,4,1>Octave Range
+slider6:3<2,8,1>Min Phrase Length
+slider7:7<3,20,1>Max Phrase Length
+slider8:1<0,1,1{Off,On}>Use Passing Tones
+slider9:0.5<0.1,1,0.05>Density (sparse to busy)
+slider10:40<1,127,1>Min Velocity
+slider11:100<1,127,1>Max Velocity
+slider12:0<0,1,1{Off,On}>Enable Swing Notes
+slider13:0.2<0,1,0.05>8th Note Amount
+slider14:1<0,1,1{Off,On}>Enable Generation
+slider15:0<0,127,1>MIDI Channel (0=all)
+slider16:8<0,32,1>Init Jitter (burns)
+
+in_pin:none
+out_pin:none
+
+@init
+// Scale intervals (semitones from root)
+// Major: W W H W W W H
+scale_major = 0; // Array index
+scale_major[0] = 0; scale_major[1] = 2; scale_major[2] = 4; scale_major[3] = 5;
+scale_major[4] = 7; scale_major[5] = 9; scale_major[6] = 11;
+
+// Minor: W H W W H W W
+scale_minor = 10;
+scale_minor[0] = 0; scale_minor[1] = 2; scale_minor[2] = 3; scale_minor[3] = 5;
+scale_minor[4] = 7; scale_minor[5] = 8; scale_minor[6] = 10;
+
+// Dorian: W H W W W H W
+scale_dorian = 20;
+scale_dorian[0] = 0; scale_dorian[1] = 2; scale_dorian[2] = 3; scale_dorian[3] = 5;
+scale_dorian[4] = 7; scale_dorian[5] = 9; scale_dorian[6] = 10;
+
+// Mixolydian: W W H W W H W
+scale_mixo = 30;
+scale_mixo[0] = 0; scale_mixo[1] = 2; scale_mixo[2] = 4; scale_mixo[3] = 5;
+scale_mixo[4] = 7; scale_mixo[5] = 9; scale_mixo[6] = 10;
+
+// Lydian: W W W H W W H
+scale_lydian = 40;
+scale_lydian[0] = 0; scale_lydian[1] = 2; scale_lydian[2] = 4; scale_lydian[3] = 6;
+scale_lydian[4] = 7; scale_lydian[5] = 9; scale_lydian[6] = 11;
+
+// Phrygian: H W W W H W W
+scale_phrygian = 50;
+scale_phrygian[0] = 0; scale_phrygian[1] = 1; scale_phrygian[2] = 3; scale_phrygian[3] = 5;
+scale_phrygian[4] = 7; scale_phrygian[5] = 8; scale_phrygian[6] = 10;
+
+// Harmonic Minor: W H W W H W+H H
+scale_harm_minor = 60;
+scale_harm_minor[0] = 0; scale_harm_minor[1] = 2; scale_harm_minor[2] = 3; scale_harm_minor[3] = 5;
+scale_harm_minor[4] = 7; scale_harm_minor[5] = 8; scale_harm_minor[6] = 11;
+
+// Chord degree offsets (scale degrees, 0-indexed)
+// Major chords: I, IV, V (degrees 0, 3, 4)
+// Minor chords: ii, iii, vi (degrees 1, 2, 5)
+// Diminished: vii (degree 6)
+chord_degrees = 100;
+chord_degrees[0] = 0;  // I
+chord_degrees[1] = 1;  // II
+chord_degrees[2] = 2;  // III
+chord_degrees[3] = 3;  // IV
+chord_degrees[4] = 4;  // V
+chord_degrees[5] = 5;  // VI
+chord_degrees[6] = 6;  // VII
+chord_degrees[7] = 0;  // i (minor)
+chord_degrees[8] = 1;  // ii
+chord_degrees[9] = 2;  // iii
+chord_degrees[10] = 3; // iv
+chord_degrees[11] = 4; // v
+
+// Chord quality (0=major, 1=minor, 2=dim)
+chord_quality = 120;
+chord_quality[0] = 0; // I - major
+chord_quality[1] = 1; // II - minor (ii in major key)
+chord_quality[2] = 1; // III - minor (iii in major key)
+chord_quality[3] = 0; // IV - major
+chord_quality[4] = 0; // V - major
+chord_quality[5] = 1; // VI - minor (vi in major key)
+chord_quality[6] = 2; // VII - diminished (vii° in major key)
+chord_quality[7] = 1; // i - minor
+chord_quality[8] = 1; // ii - minor
+chord_quality[9] = 1; // iii - minor
+chord_quality[10] = 1; // iv - minor
+chord_quality[11] = 1; // v - minor
+
+// Working arrays
+current_scale = 200;      // 7 notes
+current_chord_tones = 210; // up to 4 notes (root, 3rd, 5th, 7th)
+available_notes = 220;    // all available MIDI notes with weights
+note_weights = 300;       // parallel array of weights
+
+last_note = -1;
+current_note = -1;
+note_playing = 0;
+last_beat_pos = -1;
+last_beat_num = -1;
+samples_since_note = 0;
+phrase_complete_waiting_beat = 0;  // Flag: phrase done, waiting for beat boundary to start rest
+last_swing_pos = -1;  // Track last swing note position to avoid repeats
+swing_note_pending = 0;  // Flag: next phrase note should be played at swing timing
+pending_swing_note = -1;  // The MIDI note to play at swing timing
+pending_swing_velocity = 0;  // Velocity for the pending swing-timed note
+
+// Phrase generation state
+phrase_active = 0;              // Are we currently in a phrase?
+phrase_length = 0;              // Notes to generate in current phrase
+phrase_note_count = 0;          // Notes generated so far
+phrase_rest_count = 0;          // Rest beats between phrases
+between_phrase_rest = 1;        // Beats of rest needed between phrases
+between_phrase_rest_max = 0;    // Maximum rest counter to force phrase generation
+phrase_start_note = -1;         // Starting note of phrase
+phrase_end_note = -1;           // Ending note of phrase (planned)
+phrase_direction = 0;           // -1 = down, 0 = neutral, 1 = up (for melodic momentum)
+direction_steps = 0;            // How many notes we've moved in current direction
+direction_change_countdown = 0; // Force direction change after N notes
+
+// Prevent passing tone repeats within phrase
+last_was_passing = 0;
+
+// Pre-calculated phrase notes
+phrase_notes = 700;  // Array of MIDI notes for this phrase
+
+// Soft boundary extension - allow notes to exceed by this many semitones
+soft_boundary_extension = 5;
+
+// Convert octave slider (0-5 = C1-C6) to MIDI base note
+// C1 = MIDI 24, C2 = 36, C3 = 48, C4 = 60, C5 = 72, C6 = 84
+function get_base_note() (
+  (slider4 + 1) * 12 + 12;  // slider4=0 -> 24 (C1), slider4=3 -> 60 (C4)
+);
+
+// Debug counters
+debug_reset_count = 0;
+debug_notes_generated = 0;
+debug_last_num_available = 0;
+debug_escape_fallback = 0;  // Track when escape fallback is used
+debug_first_avail = -1;     // First available note
+debug_last_avail = -1;      // Last available note
+debug_build_escape_dir = 0; // Escape direction when build_available_notes was called
+debug_build_escape_rem = 0; // Escape remaining when build_available_notes was called
+debug_build_last_note = -1; // Last note when build_available_notes was called
+debug_last_selected_weight = 0; // Weight of the selected note
+debug_ultimate_fallback = 0; // Count ultimate fallbacks
+
+// Debug history - last 8 notes with state info
+debug_hist_size = 8;
+debug_hist_idx = 0;
+debug_hist_notes = 600;     // note played
+debug_hist_weights = 610;   // weight of note selected
+debug_hist_avail = 620;     // number of available notes
+debug_hist_dir = 630;       // phrase direction at time
+debug_hist_pos = 640;       // position in phrase
+i = 0;
+loop(debug_hist_size,
+  debug_hist_notes[i] = -1;
+  debug_hist_weights[i] = 0;
+  debug_hist_avail[i] = 0;
+  debug_hist_dir[i] = 0;
+  debug_hist_pos[i] = 0;
+  i += 1;
+);
+
+// Phrase planning debug
+debug_phrase_start = -1;
+debug_phrase_end = -1;
+debug_phrase_distance = 0;
+debug_phrase_iterations = 0;
+debug_start_scale_idx = 0;
+debug_end_scale_idx = 0;
+debug_start_octave = 0;
+debug_phrase_dir = 0;
+debug_endpoint_r = 0;
+debug_endpoint_selected = -1;
+debug_endpoint_cumulative = 0;
+// Debug first 4 notes of phrase build
+debug_note0 = -1;
+debug_note1 = -1;
+debug_note2 = -1;
+debug_note3 = -1;
+
+// State machine debug
+debug_state_rest = 0;
+debug_state_active = 0;
+debug_state_idle = 0;
+debug_build_attempts = 0;
+debug_build_failures = 0;
+debug_last_failure_reason = 0;  // 0=none, 1=not chord tone, 2=out of bounds
+
+// Enhanced failure tracking
+debug_fail_no_chord = 0;        // Failed: endpoint not chord tone after retries
+debug_fail_out_of_bounds = 0;  // Failed: notes went out of bounds
+debug_fail_no_scale_idx = 0;   // Failed: endpoint not in scale array
+debug_attempted_phrase_len = 0; // Last attempted phrase length
+debug_endpoint_distance_from_top = 0;  // Semitones from top boundary
+debug_endpoint_distance_from_bot = 0;  // Semitones from bottom boundary
+debug_last_rest_assigned = 0;   // Last rest value assigned
+debug_rest_assign_count = 0;    // How many times rest was assigned
+debug_rand_out_of_range = 0;    // Count of my_rand() returning invalid values
+debug_rand_phrase_len = -1;     // First random used for phrase length
+debug_rand_endpoint_pick = -1;  // First random used for endpoint selection
+debug_rand_direction_pick = -1; // First random used for direction choice
+
+// Random seed - will be initialized on first block
+rand_state = 1;
+rand_calls = 0;
+rand_initialized = 0;
+rand_init_blocks = 0;       // Count blocks during initialization
+phrase_build_counter = 0;  // Increments on each phrase build for entropy
+last_endpoint_note = -1;   // Track last endpoint to avoid repeats
+last_play_position = 0;    // Track play position for re-seeding detection
+
+// Debug: track last 10 random values
+debug_rand_history = 900;  // Array for last 10 random values
+debug_rand_idx = 0;        // Current position in circular buffer
+i = 0;
+loop(10,
+  debug_rand_history[i] = -1;
+  i += 1;
+);
+
+function seed_random() local(temp_seed, mix1, mix2, entropy1, entropy2) (
+  // Accumulate entropy from multiple sources over time
+  // Each call adds more entropy to rand_state
+  
+  // Get current time with microsecond precision
+  entropy1 = floor(time_precise() * 1000000);
+  
+  // Add sample-based entropy (varies with audio buffer processing)
+  entropy2 = (samplesblock * 104729) ^ (srate * 7919);
+  
+  // If this is initial seeding, use time as base
+  // Otherwise, mix with existing state
+  rand_init_blocks == 0 ? (
+    temp_seed = entropy1 ^ entropy2;
+  ) : (
+    // Mix new entropy into existing state
+    temp_seed = rand_state ^ entropy1 ^ entropy2 ^ (rand_init_blocks * 12345);
+  );
+  
+  // Add playback position if available
+  play_position > 0 ? (
+    temp_seed = temp_seed ^ floor(play_position * 999983);
+  );
+  
+  // Multiple rounds of mixing to ensure good distribution
+  mix1 = temp_seed;
+  mix1 = (mix1 ^ 61) ^ (mix1 >> 16);
+  mix1 = mix1 + (mix1 << 3);
+  mix1 = mix1 ^ (mix1 >> 4);
+  mix1 = mix1 * 0x27d4eb2d;
+  mix1 = mix1 ^ (mix1 >> 15);
+  
+  // Second round of mixing
+  mix2 = mix1;
+  mix2 = (mix2 ^ (mix2 >> 16)) * 0x7feb352d;
+  mix2 = (mix2 ^ (mix2 >> 15)) * 0x846ca68b;
+  mix2 = mix2 ^ (mix2 >> 16);
+  
+  // Ensure odd number for better PRNG behavior
+  rand_state = (mix2 | 1);
+  rand_init_blocks += 1;
+  
+  // Mark as fully initialized after collecting entropy from several blocks
+  rand_init_blocks >= 5 ? rand_initialized = 1;
+);
+
+function my_rand() local(result) (
+  // Re-seed every ~100 calls to prevent state cycling
+  rand_calls = (rand_calls + 1) % 100;
+  rand_calls == 0 ? (
+    // Mix current state with fresh entropy from multiple sources
+    rand_state = (rand_state ^ floor(time_precise() * 1000) ^ (phrase_build_counter * 7919) ^ (samplesblock * 31)) | 1;
+  );
+  
+  rand_state = (rand_state * 1103515245 + 12345) & 0x7fffffff;
+  result = rand_state / 0x7fffffff;
+  
+  // Validation: should always be 0-1
+  (result < 0 || result > 1) ? (
+    debug_rand_out_of_range += 1;
+    result = 0.5;  // Safe fallback
+  );
+  
+  // Store in debug history
+  debug_rand_history[debug_rand_idx] = result;
+  debug_rand_idx = (debug_rand_idx + 1) % 10;
+  
+  result;
+);
+
+// Apply configurable jitter to the PRNG seed by mixing entropy and burning draws
+function apply_seed_jitter() local(burns, mix_seed, j) (
+  burns = slider16;
+  burns > 0 ? (
+    mix_seed = floor(time_precise() * 1000000) ^ (samplesblock * 2654435761) ^ (srate * 97) ^ rand_init_blocks ^ burns;
+    rand_state = (rand_state ^ mix_seed) | 1;
+    j = 0;
+    loop(burns,
+      my_rand();
+      j += 1;
+    );
+  );
+);
+
+function get_scale_base() (
+  slider2 == 0 ? scale_major :
+  slider2 == 1 ? scale_minor :
+  slider2 == 2 ? scale_dorian :
+  slider2 == 3 ? scale_mixo :
+  slider2 == 4 ? scale_lydian :
+  slider2 == 5 ? scale_phrygian :
+  scale_harm_minor;
+);
+
+function build_scale() local(i, base, root) (
+  root = slider1; // 0-11
+  base = get_scale_base();
+  i = 0;
+  loop(7,
+    current_scale[i] = (root + base[i]) % 12;
+    i += 1;
+  );
+);
+
+function build_chord_tones() local(degree, quality, root_idx, third_idx, fifth_idx, base) (
+  degree = chord_degrees[slider3];
+  quality = chord_quality[slider3];
+  base = get_scale_base();
+
+  // Root of chord (scale degree)
+  current_chord_tones[0] = current_scale[degree];
+
+  // Third (2 scale steps up)
+  third_idx = (degree + 2) % 7;
+  current_chord_tones[1] = current_scale[third_idx];
+
+  // Fifth (4 scale steps up)
+  fifth_idx = (degree + 4) % 7;
+  current_chord_tones[2] = current_scale[fifth_idx];
+
+  // Optional 7th (6 scale steps up)
+  current_chord_tones[3] = current_scale[(degree + 6) % 7];
+);
+
+function is_chord_tone(note_class) local(i, found) (
+  found = 0;
+  i = 0;
+  loop(3, // Check root, 3rd, 5th
+    note_class == current_chord_tones[i] ? found = 1;
+    i += 1;
+  );
+  found;
+);
+
+function is_scale_tone(note_class) local(i, found) (
+  found = 0;
+  i = 0;
+  loop(7,
+    note_class == current_scale[i] ? found = 1;
+    i += 1;
+  );
+  found;
+);
+
+// Check how recently a note was played (returns 0-1, where 1 = most recent)
+function get_recency_penalty(midi_note) local(i, pos, recency) (
+  recency = 0;
+  i = 0;
+  loop(note_history_size,
+    // Check from most recent backwards
+    pos = (note_history_idx - 1 - i + note_history_size) % note_history_size;
+    note_history[pos] == midi_note ? (
+      // More recent = higher penalty. Position 0 (most recent) = 1.0, position 7 = 0.125
+      recency = max(recency, 1 / (i + 1));
+    );
+    i += 1;
+  );
+  recency;
+);
+
+// Add note to history
+function add_to_history(midi_note) (
+  note_history[note_history_idx] = midi_note;
+  note_history_idx = (note_history_idx + 1) % note_history_size;
+);
+
+// Helper: Initialize phrase boundaries (hard and soft)
+function init_phrase_boundaries() local(base_note, top_note) (
+  base_note = get_base_note();
+  top_note = base_note + (slider5 * 12);
+  
+  // Store in global temp variables
+  temp_base_note = base_note;
+  temp_top_note = top_note;
+  temp_soft_base = base_note - soft_boundary_extension;
+  temp_soft_top = top_note + soft_boundary_extension;
+);
+
+// Pick an ending note: weighted toward chord (50%), scale (35%), passing (15%)
+function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class, weight, total_weight, r, cumulative, i, selected, range) (
+  base_note = get_base_note();
+  top_note = base_note + (slider5 * 12);
+  
+  // Extend boundaries for soft limits
+  soft_base = base_note - soft_boundary_extension;
+  soft_top = top_note + soft_boundary_extension;
+
+  num_available = 0;
+  total_weight = 0;
+  
+  // Use loop instead of while for JSFX compatibility
+  // Use soft boundaries for endpoint selection
+  midi_note = soft_base;
+  range = soft_top - soft_base + 1;
+  i = 0;
+  loop(range,
+    (midi_note <= soft_top) ? (
+      note_class = midi_note % 12;
+      weight = 0;
+      
+      is_chord_tone(note_class) ? (
+        weight = 95;
+      ) : is_scale_tone(note_class) ? (
+        weight = 4;
+      ) : (
+        weight = 1;
+      );
+      
+      available_notes[num_available] = midi_note;
+      note_weights[num_available] = weight;
+      total_weight += weight;
+      num_available += 1;
+      midi_note += 1;
+    );
+    i += 1;
+  );
+  
+  // Normalize
+  i = 0;
+  loop(num_available,
+    note_weights[i] = note_weights[i] / total_weight;
+    i += 1;
+  );
+  
+  // Weighted random selection
+  r = my_rand();
+  (debug_rand_endpoint_pick < 0) ? debug_rand_endpoint_pick = r;
+  debug_endpoint_r = r;
+  cumulative = 0;
+  selected = available_notes[0];
+  i = 0;
+  done = 0;
+  loop(num_available,
+    done ? (
+      i = num_available;  // Skip remaining iterations
+    ) : (
+      cumulative += note_weights[i];
+      debug_endpoint_cumulative = cumulative;
+      r <= cumulative ? (
+        selected = available_notes[i];
+        debug_endpoint_selected = selected;
+        done = 1;
+      );
+      i += 1;
+    );
+  );
+  
+  // Safety: if selected is still 0 or invalid, pick a random note from available
+  (selected < soft_base || selected > soft_top) ? (
+    selected = available_notes[floor(my_rand() * num_available)];
+  );
+  
+  selected;
+);
+
+// Helper: Pick and validate endpoint, ensuring it's a chord tone
+function pick_and_validate_endpoint() local(retry_count) (
+  // Consume random values to break cycling patterns
+  retry_count = 0;
+  loop(5 + (phrase_build_counter % 7),
+    my_rand();
+    retry_count += 1;
+  );
+  
+  // Pick ending note
+  phrase_end_note = pick_phrase_endpoint();
+  
+  // Log endpoint distances from hard boundaries
+  debug_endpoint_distance_from_top = temp_top_note - phrase_end_note;
+  debug_endpoint_distance_from_bot = phrase_end_note - temp_base_note;
+  
+  // Avoid repeating same endpoint consecutively
+  retry_count = 0;
+  loop(8,
+    (phrase_end_note == last_endpoint_note) ? (
+      phrase_end_note = pick_phrase_endpoint();
+      retry_count += 1;
+    ) : (
+      retry_count = 10;  // break
+    );
+  );
+  last_endpoint_note = phrase_end_note;
+  
+  // Ensure ending note is a chord tone - retry if not
+  loop(10,
+    !is_chord_tone(phrase_end_note % 12) ? (
+      phrase_end_note = pick_phrase_endpoint();
+    ) : (
+      retry_count = 10;  // break
+    );
+  );
+  
+  // Return success if chord tone found
+  is_chord_tone(phrase_end_note % 12);
+);
+
+// Helper: Determine phrase direction based on available room
+function determine_phrase_direction() local(room_above, room_below, semitones_needed, direction, rdir) (
+  room_above = temp_top_note - phrase_end_note;
+  room_below = phrase_end_note - temp_base_note;
+  
+  // Estimate semitones needed (roughly 2 per scale step)
+  semitones_needed = phrase_length * 2;
+  
+  // Pick direction based on available room
+  room_below >= semitones_needed ? (
+    room_above >= semitones_needed ? (
+      // Both directions work - pick randomly
+      rdir = my_rand();
+      (debug_rand_direction_pick < 0) ? debug_rand_direction_pick = rdir;
+      direction = rdir < 0.5 ? 1 : -1;
+    ) : (
+      // Only room below - must go UP
+      direction = 1;
+    );
+  ) : (
+    // Not enough room below - must go DOWN
+    direction = -1;
+  );
+  
+  direction;
+);
+
+// Helper: Build temporary array of scale notes in extended range
+function build_temp_scale_array() local(midi_note, note_class, temp_count) (
+  temp_scale_notes = 800;
+  temp_count = 0;
+  
+  // Fill with scale notes in extended range (soft boundaries)
+  midi_note = temp_soft_base;
+  loop(temp_soft_top - temp_soft_base + 1,
+    note_class = midi_note % 12;
+    is_scale_tone(note_class) ? (
+      temp_scale_notes[temp_count] = midi_note;
+      temp_count += 1;
+    );
+    midi_note += 1;
+  );
+  
+  temp_count;  // Return count
+);
+
+// Helper: Find endpoint and start indices in scale array
+function find_scale_indices(temp_count, direction) local(i, endpoint_idx, start_idx, steps_needed) (
+  // Find endpoint index
+  endpoint_idx = -1;
+  i = 0;
+  loop(temp_count,
+    temp_scale_notes[i] == phrase_end_note ? endpoint_idx = i;
+    i += 1;
+  );
+  
+  // Store for return
+  temp_endpoint_idx = endpoint_idx;
+  
+  endpoint_idx < 0 ? (
+    // Failed to find endpoint
+    temp_start_idx = -1;
+    0;  // Return failure
+  ) : (
+    // Calculate start index
+    steps_needed = floor(phrase_length * 1.5);
+    
+    direction > 0 ? (
+      start_idx = max(0, endpoint_idx - steps_needed);
+    ) : (
+      start_idx = min(temp_count - 1, endpoint_idx + steps_needed);
+    );
+    
+    temp_start_idx = start_idx;
+    
+    // Check validity
+    (start_idx >= 0 && start_idx < temp_count) ? 1 : 0;
+  );
+);
+
+// Helper: Build phrase notes with passing tones, repeats, and direction changes
+function build_phrase_notes(direction, temp_count) local(i, note_idx, current_direction, steps_since_dir_change, prev_midi_note, prev_note_type, build_failed, midi_note, note_class, curr_note_type, use_repeat, passing_candidate, passing_class, distance_from_top, distance_from_bottom, near_top_boundary, near_bottom_boundary, min_steps_between, dir_change_prob, skip_amount, passed_endpoint, overshoot_limit, endpoint_overshoot) (
+  // Clear debug notes
+  debug_note0 = -1;
+  debug_note1 = -1;
+  debug_note2 = -1;
+  debug_note3 = -1;
+  
+  // Probabilities
+  passing_tone_prob = slider8 == 1 ? 0.12 : 0;
+  repeat_chord_prob = 0.15;
+  repeat_scale_prob = 0.08;
+  repeat_passing_prob = 0.03;
+  
+  // For longer phrases, allow overshooting the endpoint and returning
+  // Shorter phrases (<=8 notes): no overshoot
+  // Medium phrases (9-14): modest overshoot
+  // Long phrases (15+): significant overshoot
+  endpoint_overshoot = 0;
+  phrase_length <= 8 ? (
+    endpoint_overshoot = 0;
+  ) : phrase_length <= 14 ? (
+    endpoint_overshoot = 2 + floor(my_rand() * 2);
+  ) : (
+    endpoint_overshoot = 3 + floor(my_rand() * 3);
+  );
+  
+  // Initialize build state
+  phrase_note_count = 0;
+  i = 0;
+  build_failed = 0;
+  prev_midi_note = -1;
+  prev_note_type = 0;
+  note_idx = temp_start_idx;
+  current_direction = direction;
+  steps_since_dir_change = 99;
+  passed_endpoint = 0;
+  overshoot_limit = temp_endpoint_idx + (direction > 0 ? endpoint_overshoot : -endpoint_overshoot);
+  
+  loop(phrase_length,
+    build_failed == 0 ? (
+      // Check bounds
+      (note_idx < 0 || note_idx >= temp_count) ? (
+        build_failed = 1;
+        phrase_note_count = -1;
+      ) : (
+        // Consider direction change (not on first or last note)
+        (i > 0 && i < phrase_length - 1) ? (
+          // Get current note for boundary check
+          midi_note = temp_scale_notes[note_idx];
+          
+          // Check proximity to boundaries
+          distance_from_top = temp_soft_top - midi_note;
+          distance_from_bottom = midi_note - temp_soft_base;
+          
+          near_top_boundary = distance_from_top <= 3;
+          near_bottom_boundary = distance_from_bottom <= 3;
+          
+          // Force direction change if at boundary
+          near_top_boundary ? (
+            current_direction > 0 ? (
+              current_direction = -1;
+              steps_since_dir_change = 0;
+            );
+          );
+          near_bottom_boundary ? (
+            current_direction < 0 ? (
+              current_direction = 1;
+              steps_since_dir_change = 0;
+            );
+          );
+          
+          // Check if we've passed the overshoot limit - force turnaround
+          passed_endpoint == 0 && endpoint_overshoot > 0 ? (
+            direction > 0 ? (
+              note_idx >= overshoot_limit ? (
+                passed_endpoint = 1;
+                current_direction = -1;
+                steps_since_dir_change = 0;
+              );
+            ) : (
+              note_idx <= overshoot_limit ? (
+                passed_endpoint = 1;
+                current_direction = 1;
+                steps_since_dir_change = 0;
+              );
+            );
+          );
+          
+          // Normal direction change logic
+          !near_top_boundary && !near_bottom_boundary && passed_endpoint == 0 ? (
+            phrase_length <= 8 ? (
+              min_steps_between = 4 + floor(my_rand() * 3);
+              dir_change_prob = 0.2;
+            ) : phrase_length <= 14 ? (
+              min_steps_between = 3 + floor(my_rand() * 2);
+              dir_change_prob = 0.3;
+            ) : (
+              min_steps_between = 2 + floor(my_rand() * 2);
+              dir_change_prob = 0.4;
+            );
+            
+            (steps_since_dir_change >= min_steps_between) ? (
+              my_rand() < dir_change_prob ? (
+                current_direction = -current_direction;
+                steps_since_dir_change = 0;
+              );
+            );
+          );
+        );
+        
+        // Get the base scale note
+        midi_note = temp_scale_notes[note_idx];
+        note_class = midi_note % 12;
+        
+        // Determine note type
+        curr_note_type = is_chord_tone(note_class) ? 1 : 2;
+        
+        // Check for repeat
+        use_repeat = 0;
+        (i > 0 && i < phrase_length - 1 && prev_midi_note > 0) ? (
+          prev_note_type == 1 ? (
+            my_rand() < repeat_chord_prob ? use_repeat = 1;
+          ) : prev_note_type == 2 ? (
+            my_rand() < repeat_scale_prob ? use_repeat = 1;
+          ) : prev_note_type == 3 ? (
+            my_rand() < repeat_passing_prob ? use_repeat = 1;
+          );
+        );
+        
+        use_repeat ? (
+          midi_note = prev_midi_note;
+          curr_note_type = prev_note_type;
+        ) : (
+          // Check for passing tone
+          (i > 0 && i < phrase_length - 1) ? (
+            my_rand() < passing_tone_prob ? (
+              passing_candidate = direction > 0 ? midi_note - 1 : midi_note + 1;
+              passing_class = passing_candidate % 12;
+              (!is_scale_tone(passing_class) && passing_candidate >= temp_soft_base && passing_candidate <= temp_soft_top) ? (
+                midi_note = passing_candidate;
+                curr_note_type = 3;
+              );
+            );
+          );
+        );
+        
+        // Debug first 4 notes
+        i == 0 ? debug_note0 = midi_note;
+        i == 1 ? debug_note1 = midi_note;
+        i == 2 ? debug_note2 = midi_note;
+        i == 3 ? debug_note3 = midi_note;
+        
+        debug_start_octave = floor(midi_note / 12);
+        
+        // Check soft bounds
+        (midi_note < temp_soft_base || midi_note > temp_soft_top) ? (
+          build_failed = 1;
+          phrase_note_count = -1;
+          debug_fail_out_of_bounds += 1;
+        ) : (
+          phrase_notes[i] = midi_note;
+          prev_midi_note = midi_note;
+          prev_note_type = curr_note_type;
+          i += 1;
+          steps_since_dir_change += 1;
+          
+          // Advance note_idx
+          skip_amount = floor(my_rand() * 2) + 1;
+          current_direction > 0 ? (
+            note_idx += skip_amount;
+          ) : (
+            note_idx -= skip_amount;
+          );
+        );
+      );
+    );
+  );
+  
+  // Return success/failure
+  phrase_note_count >= 0 ? 1 : 0;
+);
+
+// Build entire phrase by walking scale from calculated start to pre-selected end
+function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, temp_count, success) (
+  debug_build_attempts += 1;
+  phrase_build_counter += 1;
+  debug_rand_phrase_len = -1;
+  debug_rand_endpoint_pick = -1;
+  debug_rand_direction_pick = -1;
+  
+  // Step 1: Initialize boundaries
+  init_phrase_boundaries();
+  
+  // Step 2: Pick and validate endpoint
+  pick_and_validate_endpoint() ? (
+    // Endpoint is valid chord tone, continue
+    
+    // Step 3: Determine phrase length
+    max_phrase = min(slider7, slider5 * 7);
+    min_phrase = min(slider6, max_phrase);
+    r_len = my_rand();
+    debug_rand_phrase_len = r_len;
+    phrase_length = min_phrase + floor(r_len * (max_phrase - min_phrase + 1));
+    debug_attempted_phrase_len = phrase_length;
+    
+    // Step 4: Determine direction
+    direction = determine_phrase_direction();
+    phrase_direction = direction;
+    debug_phrase_dir = direction;
+    
+    // Step 5: Build temp scale array
+    temp_count = build_temp_scale_array();
+    
+    // Step 6: Find scale indices
+    find_scale_indices(temp_count, direction) ? (
+      // Valid indices found
+      debug_start_scale_idx = temp_start_idx;
+      debug_end_scale_idx = temp_endpoint_idx;
+      
+      // Step 7: Build phrase notes
+      success = build_phrase_notes(direction, temp_count);
+      
+      // Step 8: Finalize
+      success ? (
+        phrase_active = 1;
+        phrase_note_count = 0;
+        last_note = -1;
+        debug_phrase_start = phrase_notes[0];
+        debug_phrase_end = phrase_notes[phrase_length - 1];
+        debug_phrase_distance = abs(phrase_notes[phrase_length - 1] - phrase_notes[0]);
+        debug_phrase_iterations = 0;
+        debug_last_failure_reason = 0;
+      ) : (
+        // Build failed - out of bounds
+        phrase_active = 0;
+        between_phrase_rest = 1;
+        debug_build_failures += 1;
+        debug_last_failure_reason = 2;
+        debug_fail_out_of_bounds += 1;
+      );
+    ) : (
+      // Failed to find valid indices
+      phrase_active = 0;
+      between_phrase_rest = 1;
+      phrase_note_count = -1;
+      debug_fail_no_scale_idx += 1;
+      debug_build_failures += 1;
+      debug_last_failure_reason = 3;
+    );
+  ) : (
+    // Failed to find chord tone endpoint
+    phrase_active = 0;
+    between_phrase_rest = 1;
+    debug_build_failures += 1;
+    debug_last_failure_reason = 1;
+    debug_fail_no_chord += 1;
+  );
+);
+
+function send_note_on(note, vel) (
+  midisend(0, $x90 + (slider15 > 0 ? slider15 - 1 : 0), note, vel);
+  note_playing = note;
+);
+
+function send_note_off() (
+  note_playing > 0 ? (
+    midisend(0, $x80 + (slider15 > 0 ? slider15 - 1 : 0), note_playing, 0);
+    note_playing = 0;
+  );
+);
+
+@slider
+build_scale();
+build_chord_tones();
+
+@block
+// Seed random - collect entropy over first several blocks for better randomization
+// This helps ensure different seeds on each plugin instance
+rand_initialized == 0 ? (
+  seed_random();
+  apply_seed_jitter();
+) : (
+  // Check if we should re-seed (e.g., user stopped and restarted playback)
+  abs(play_position - last_play_position) > 10 ? (
+    rand_init_blocks = 0;  // Reset to re-accumulate entropy
+    rand_initialized = 0;
+    seed_random();
+    apply_seed_jitter();
+  );
+  last_play_position = play_position;
+);
+
+slider14 == 1 ? ( // Generation enabled
+  // Get current beat position (quarter notes)
+  beat_num = floor(beat_position);
+  beat_pos = floor(beat_position * 4) / 4; // Quantize to 16th notes
+  
+  // Check for swing note opportunity (triplet swing = 2/3 of beat)
+  swing_pos = floor((beat_position * 3) + 2) / 3;  // Position of next swing opportunity (2/3 of beat)
+  swing_active = (beat_position * 3) - floor(beat_position * 3);  // Fractional part in triplet divisions
+  
+  // If swing timing is active and we have a pending note to play at swing timing
+  // Trigger window: between 0.6 and 0.75 of the triplet (around 2/3 of the beat)
+  slider12 == 1 && swing_active >= 0.6 && swing_active < 0.75 && swing_note_pending ? (
+    swing_note_pending = 0;
+    send_note_off();
+    send_note_on(pending_swing_note, pending_swing_velocity);
+    last_note = pending_swing_note;
+    phrase_note_count += 1;
+    debug_notes_generated += 1;
+  );
+  
+  // Check if we've crossed a beat boundary (quarter note)
+  beat_num != last_beat_num ? (
+    last_beat_num = beat_num;
+    
+    // If phrase was complete and waiting for beat boundary, now start rest
+    phrase_complete_waiting_beat ? (
+      phrase_complete_waiting_beat = 0;
+      // Rest between phrases controlled by density
+      // At density 0.1 (sparse): 4-8 beats rest
+      // At density 1.0 (busy): 1-2 beats rest
+      max_rest = floor(8 - slider9 * 6);  // 8 at 0.1, 2 at 1.0
+      min_rest = floor(4 - slider9 * 3);  // 4 at 0.1, 1 at 1.0
+      min_rest = max(1, min_rest);
+      between_phrase_rest = min_rest + floor(my_rand() * (max_rest - min_rest + 1));
+      debug_last_rest_assigned = between_phrase_rest;
+      debug_rest_assign_count += 1;
+      send_note_off();
+    );
+  );
+
+  beat_pos != last_beat_pos ? (
+    last_beat_pos = beat_pos;
+
+    // Handle between-phrase rest
+    between_phrase_rest > 0 ? (
+      debug_state_rest += 1;
+      between_phrase_rest_max += 1;
+      between_phrase_rest -= 1;
+      between_phrase_rest == 0 ? (
+        // Rest complete, build new phrase
+        build_phrase_from_endpoint();
+        between_phrase_rest_max = 0;
+      );
+      // Safety: if rest has gone on too long (>2 beats), force generation
+      (between_phrase_rest_max > 2) ? (
+        between_phrase_rest = 0;
+        build_phrase_from_endpoint();
+        between_phrase_rest_max = 0;
+      );
+      send_note_off();
+    ) : phrase_active ? (
+      debug_state_active += 1;
+      // We're in a phrase - play pre-calculated notes
+      phrase_note_count < phrase_length ? (
+        // Rest probability within phrase: higher density = fewer rests
+        // At density 0.1 (sparse): 60% rest chance
+        // At density 1.0 (busy): 0% rest chance
+        inner_rest_prob = 0.6 * (1 - slider9);
+        (phrase_note_count > 0 && my_rand() < inner_rest_prob) ? (
+          send_note_off();
+          swing_note_pending = 0;  // Cancel any pending swing note
+        ) : (
+          send_note_off();
+
+          // Play the next note from pre-calculated phrase
+          new_note = phrase_notes[phrase_note_count];
+          
+          // Calculate velocity based on melodic direction and position
+          velocity = slider10 + (slider11 - slider10) / 2;  // Start at midpoint
+          
+          // If we have a previous note, adjust velocity by direction
+          last_note >= 0 ? (
+            note_diff = new_note - last_note;
+            // Going up: boost velocity toward max
+            note_diff > 0 ? (
+              velocity = slider10 + (slider11 - slider10) * 0.6 + my_rand() * (slider11 - slider10) * 0.2;
+            ) : note_diff < 0 ? (
+              // Going down: reduce velocity toward min
+              velocity = slider10 + (slider11 - slider10) * 0.3 + my_rand() * (slider11 - slider10) * 0.2;
+            ) : (
+              // Same note: midpoint with randomness
+              velocity = slider10 + (slider11 - slider10) * 0.45 + my_rand() * (slider11 - slider10) * 0.1;
+            );
+          ) : (
+            // First note: randomize within range
+            velocity = slider10 + my_rand() * (slider11 - slider10);
+          );
+          
+          // Clamp to valid MIDI velocity range
+          velocity = max(1, min(127, floor(velocity)));
+          
+          // Check if this note should be an 8th note (based on slider13)
+          is_eighth_note = my_rand() < slider13;
+          
+          // If it's an 8th note AND swing is enabled, schedule for swing timing
+          is_eighth_note && slider12 == 1 ? (
+            // Schedule this note to play at swing timing instead
+            swing_note_pending = 1;
+            pending_swing_note = new_note;
+            pending_swing_velocity = velocity;
+            // Don't send note yet - wait for swing timing
+          ) : (
+            // Play note immediately at beat
+            send_note_on(new_note, velocity);
+            last_note = new_note;
+            phrase_note_count += 1;
+            debug_notes_generated += 1;
+          );
+
+          // Record to debug history
+          debug_hist_notes[debug_hist_idx] = new_note;
+          debug_hist_weights[debug_hist_idx] = 1.0;  // All scale tones equal
+          debug_hist_avail[debug_hist_idx] = phrase_length;
+          debug_hist_dir[debug_hist_idx] = phrase_direction;
+          debug_hist_pos[debug_hist_idx] = phrase_note_count;
+          debug_hist_idx = (debug_hist_idx + 1) % debug_hist_size;
+        );
+      ) : (
+        // Phrase complete - wait for beat boundary before transitioning to rest
+        phrase_active = 0;
+        phrase_direction = 0;
+        phrase_complete_waiting_beat = 1;
+        swing_note_pending = 0;  // Cancel any pending swing note
+        send_note_off();
+      );
+    ) : (
+      debug_state_idle += 1;
+      // Not in phrase and no rest pending - start a phrase (always, not randomly)
+      build_phrase_from_endpoint();
+    );
+  );
+);
+
+// Pass through incoming MIDI
+while(midirecv(offset, msg1, msg2, msg3)) (
+  midisend(offset, msg1, msg2, msg3);
+);
+
+@gfx 500 360
+gfx_clear = 0x1a1a2e;
+
+// Title
+gfx_setfont(1, "Arial", 16, 'b');
+gfx_set(0.9, 0.9, 0.9);
+gfx_x = 10; gfx_y = 10;
+gfx_drawstr("Generative Melody Maker");
+
+// Current state
+gfx_setfont(1, "Arial", 12);
+gfx_x = 10; gfx_y = 40;
+gfx_set(0.7, 0.8, 1);
+
+// Show root and scale
+root_names = 400;
+root_names[0] = "C"; root_names[1] = "C#"; root_names[2] = "D"; root_names[3] = "D#";
+root_names[4] = "E"; root_names[5] = "F"; root_names[6] = "F#"; root_names[7] = "G";
+root_names[8] = "G#"; root_names[9] = "A"; root_names[10] = "A#"; root_names[11] = "B";
+
+scale_names = 420;
+scale_names[0] = "Major"; scale_names[1] = "Minor"; scale_names[2] = "Dorian";
+scale_names[3] = "Mixolydian"; scale_names[4] = "Lydian"; scale_names[5] = "Phrygian";
+scale_names[6] = "Harmonic Minor";
+
+gfx_drawstr("Scale: ");
+// Note: JSFX doesn't support string arrays well, showing indices instead
+gfx_drawnumber(slider1, 0);
+gfx_drawstr(" ");
+gfx_drawnumber(slider2, 0);
+
+gfx_x = 10; gfx_y = 60;
+gfx_drawstr("Current Chord: ");
+gfx_drawnumber(slider3, 0);
+
+gfx_x = 10; gfx_y = 80;
+gfx_drawstr("Last Note: ");
+last_note >= 0 ? gfx_drawnumber(last_note, 0) : gfx_drawstr("--");
+
+gfx_x = 10; gfx_y = 100;
+gfx_drawstr("Note Playing: ");
+note_playing > 0 ? gfx_drawnumber(note_playing, 0) : gfx_drawstr("--");
+
+// Phrase planning debug
+gfx_x = 10; gfx_y = 120;
+gfx_set(1, 1, 0.3);
+gfx_drawstr("Phrase: ");
+debug_note0 >= 0 ? gfx_drawnumber(debug_note0, 0) : gfx_drawstr("--");
+gfx_drawstr("-");
+debug_note1 >= 0 ? gfx_drawnumber(debug_note1, 0) : gfx_drawstr("--");
+gfx_drawstr("-");
+debug_note2 >= 0 ? gfx_drawnumber(debug_note2, 0) : gfx_drawstr("--");
+gfx_drawstr("-");
+debug_note3 >= 0 ? gfx_drawnumber(debug_note3, 0) : gfx_drawstr("--");
+gfx_drawstr(" End: ");
+debug_phrase_end >= 0 ? gfx_drawnumber(debug_phrase_end, 0) : gfx_drawstr("--");
+
+gfx_x = 10; gfx_y = 135;
+gfx_set(0.7, 0.7, 1);
+gfx_drawstr("StartIdx: ");
+gfx_drawnumber(debug_start_scale_idx, 0);
+gfx_drawstr(" EndIdx: ");
+gfx_drawnumber(debug_end_scale_idx, 0);
+gfx_drawstr(" Oct: ");
+gfx_drawnumber(debug_start_octave, 0);
+gfx_drawstr(" Dir: ");
+debug_phrase_dir > 0 ? gfx_drawstr("UP") : debug_phrase_dir < 0 ? gfx_drawstr("DN") : gfx_drawstr("--");
+
+gfx_x = 10; gfx_y = 150;
+gfx_set(1, 0.8, 0.3);
+gfx_drawstr("Endpoint R: ");
+gfx_drawnumber(debug_endpoint_r, 3);
+gfx_drawstr(" Selected: ");
+gfx_drawnumber(debug_endpoint_selected, 0);
+gfx_drawstr(" Cumul: ");
+gfx_drawnumber(debug_endpoint_cumulative, 3);
+
+// State machine debug
+gfx_x = 10; gfx_y = 165;
+gfx_set(1, 0.5, 0.5);
+gfx_drawstr("STATE: rest=");
+gfx_drawnumber(between_phrase_rest, 0);
+gfx_drawstr(" active=");
+gfx_drawnumber(phrase_active, 0);
+gfx_drawstr(" pos=");
+gfx_drawnumber(phrase_note_count, 0);
+gfx_drawstr("/");
+gfx_drawnumber(phrase_length, 0);
+
+gfx_x = 10; gfx_y = 180;
+gfx_set(1, 0.3, 0.3);
+gfx_drawstr("Builds: ");
+gfx_drawnumber(debug_build_attempts, 0);
+gfx_drawstr(" Fails: ");
+gfx_drawnumber(debug_build_failures, 0);
+gfx_drawstr(" LastFail: ");
+debug_last_failure_reason == 0 ? gfx_drawstr("OK") :
+debug_last_failure_reason == 1 ? gfx_drawstr("NO_CHORD") :
+debug_last_failure_reason == 2 ? gfx_drawstr("OOB") :
+debug_last_failure_reason == 3 ? gfx_drawstr("NO_IDX") : gfx_drawstr("?");
+
+gfx_x = 10; gfx_y = 195;
+gfx_set(1, 0.3, 0.3);
+gfx_drawstr("Fail Detail: NoChord=");
+gfx_drawnumber(debug_fail_no_chord, 0);
+gfx_drawstr(" OOB=");
+gfx_drawnumber(debug_fail_out_of_bounds, 0);
+gfx_drawstr(" NoIdx=");
+gfx_drawnumber(debug_fail_no_scale_idx, 0);
+
+gfx_x = 10; gfx_y = 210;
+gfx_set(1, 0.8, 0.3);
+gfx_drawstr("Attempt: PhraseLen=");
+gfx_drawnumber(debug_attempted_phrase_len, 0);
+gfx_drawstr(" EndDist: Top=");
+gfx_drawnumber(debug_endpoint_distance_from_top, 0);
+gfx_drawstr(" Bot=");
+gfx_drawnumber(debug_endpoint_distance_from_bot, 0);
+
+gfx_x = 10; gfx_y = 225;
+gfx_set(0.5, 1, 1);
+gfx_drawstr("Rest Tracking: Last=");
+gfx_drawnumber(debug_last_rest_assigned, 0);
+gfx_drawstr(" Count=");
+gfx_drawnumber(debug_rest_assign_count, 0);
+gfx_drawstr(" RandFails=");
+gfx_drawnumber(debug_rand_out_of_range, 0);
+
+gfx_x = 10; gfx_y = 240;
+gfx_set(0.5, 1, 0.5);
+gfx_drawstr("Ticks: rest=");
+gfx_drawnumber(debug_state_rest, 0);
+gfx_drawstr(" active=");
+gfx_drawnumber(debug_state_active, 0);
+gfx_drawstr(" idle=");
+gfx_drawnumber(debug_state_idle, 0);
+
+// Random number debug
+gfx_x = 10; gfx_y = 255;
+gfx_set(1, 1, 0.5);
+gfx_drawstr("Last 10 Random Values (most recent first):");
+i = 0;
+loop(10,
+  hist_pos = (debug_rand_idx - 1 - i + 10) % 10;
+  gfx_x = 10 + (i % 5) * 90; gfx_y = 270 + floor(i / 5) * 15;
+  debug_rand_history[hist_pos] >= 0 ? (
+    gfx_drawnumber(debug_rand_history[hist_pos], 5);
+  ) : (
+    gfx_drawstr("---");
+  );
+  i += 1;
+);
+
+// Show rand_state value
+gfx_x = 10; gfx_y = 300;
+gfx_set(1, 0.5, 1);
+gfx_drawstr("rand_state: ");
+gfx_drawnumber(rand_state, 0);
+gfx_drawstr(" init_blocks: ");
+gfx_drawnumber(rand_init_blocks, 0);
+gfx_drawstr(" initialized: ");
+gfx_drawnumber(rand_initialized, 0);
+
+// First random draws used in phrase build
+gfx_x = 10; gfx_y = 315;
+gfx_set(1, 0.8, 0.8);
+gfx_drawstr("Rand picks: len=");
+debug_rand_phrase_len >= 0 ? gfx_drawnumber(debug_rand_phrase_len, 5) : gfx_drawstr("--");
+gfx_drawstr(" endpoint=");
+debug_rand_endpoint_pick >= 0 ? gfx_drawnumber(debug_rand_endpoint_pick, 5) : gfx_drawstr("--");
+gfx_drawstr(" dir=");
+debug_rand_direction_pick >= 0 ? gfx_drawnumber(debug_rand_direction_pick, 5) : gfx_drawstr("--");
+
+// Debug info
+gfx_set(0.6, 0.6, 0.6);
+gfx_x = 250; gfx_y = 40;
+gfx_drawstr("DEBUG - Selection History (most recent first):");
+gfx_x = 250; gfx_y = 55;
+gfx_drawstr("Note | Weight | Avail | Dir | Pos");
+
+i = 0;
+loop(debug_hist_size,
+  hist_idx = (debug_hist_idx - 1 - i + debug_hist_size) % debug_hist_size;
+  gfx_x = 250; gfx_y = 70 + i * 15;
+  
+  debug_hist_notes[hist_idx] >= 0 ? (
+    gfx_drawnumber(debug_hist_notes[hist_idx], 0);
+    gfx_drawstr("   | ");
+    gfx_drawnumber(debug_hist_weights[hist_idx], 3);
+    gfx_drawstr("  | ");
+    gfx_drawnumber(debug_hist_avail[hist_idx], 0);
+    gfx_drawstr("   | ");
+    debug_hist_dir[hist_idx] == 1 ? gfx_drawstr("↑") : debug_hist_dir[hist_idx] == -1 ? gfx_drawstr("↓") : gfx_drawstr("•");
+    gfx_drawstr(" | ");
+    gfx_drawnumber(debug_hist_pos[hist_idx], 0);
+  );
+  
+  i += 1;
+);
+
+// Piano roll visualization (commented out for readability of random debug)
+// gfx_y = 260;
+// gfx_x = 10;
+// gfx_set(0.5, 0.5, 0.5);
+// gfx_drawstr("Available Notes (brightness = weight):");
+// 
+// piano_y = 280;
+// piano_height = 60;
+// key_width = 8;
+// 
+// // Draw boundary lines
+// boundary_base = get_base_note();
+// boundary_high = boundary_base + (slider5 * 12) - 3;
+// boundary_low = boundary_base + 3;
+// 
+// gfx_set(1, 0, 0, 0.3);
+// x_high = 10 + (boundary_high - boundary_base) * key_width;
+// gfx_rect(x_high, piano_y - 5, key_width, piano_height + 10);
+// x_low = 10 + (boundary_low - boundary_base) * key_width;
+// gfx_rect(x_low, piano_y - 5, key_width, piano_height + 10);
+// 
+// i = 0;
+// loop(num_available,
+//   midi_note = available_notes[i];
+//   weight = note_weights[i];
+// 
+//   x_pos = 10 + (midi_note - get_base_note()) * key_width;
+//   note_class = midi_note % 12;
+// 
+//   // Color based on note type and weight
+//   is_chord_tone(note_class) ? (
+//     gfx_set(0.2 + weight * 2, 0.8, 0.3 + weight); // Green for chord tones
+//   ) : is_scale_tone(note_class) ? (
+//     gfx_set(0.3 + weight * 2, 0.5 + weight, 0.9); // Blue for scale tones
+//   ) : (
+//     gfx_set(0.9, 0.5 + weight, 0.2 + weight); // Orange for passing tones
+//   );
+// 
+//   // Highlight current note
+//   midi_note == note_playing ? (
+//     gfx_set(1, 1, 0); // Yellow for playing note
+//   );
+// 
+//   gfx_rect(x_pos, piano_y, key_width - 1, piano_height * weight + 10);
+// 
+//   i += 1;
+// );
+// 
+// // Legend
+// gfx_y = 285;
+// gfx_x = 10;
+// gfx_set(0.3, 0.9, 0.4);
+// gfx_rect(10, 285, 15, 15);
+// gfx_set(0.9, 0.9, 0.9);
+// gfx_x = 30; gfx_y = 287;
+// gfx_drawstr("Chord Tone");
+// 
+// gfx_set(0.4, 0.6, 1);
+// gfx_rect(120, 285, 15, 15);
+// gfx_set(0.9, 0.9, 0.9);
+// gfx_x = 140; gfx_y = 287;
+// gfx_drawstr("Scale Tone");
+// 
+// gfx_set(1, 0.6, 0.3);
+// gfx_rect(230, 285, 15, 15);
+// gfx_set(0.9, 0.9, 0.9);
+// gfx_x = 250; gfx_y = 287;
+// gfx_drawstr("Passing Tone");
+
+// Status
+gfx_x = 10; gfx_y = 320;
+slider14 == 1 ? (
+  gfx_set(0.3, 1, 0.3);
+  gfx_drawstr("GENERATING");
+) : (
+  gfx_set(1, 0.3, 0.3);
+  gfx_drawstr("PAUSED");
+);

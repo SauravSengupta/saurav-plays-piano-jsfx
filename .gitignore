@@ -1,0 +1,11 @@
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# REAPER backups / temps
+*.RPP-bak
+*.tmp
+
+# VS Code
+.vscode/
