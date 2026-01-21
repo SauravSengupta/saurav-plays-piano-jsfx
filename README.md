@@ -14,7 +14,7 @@ This is a collection of Reaper plugins I wrote to help me with some of my ambien
 2. Paste this URL (raw index):
 
   ```
-  https://raw.githubusercontent.com/SauravPlaysPiano/JSFX/master/index.xml
+https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/refs/heads/main/index.xml
   ```
 
 3. Click OK and ReaPack will download the latest versions automatically.
@@ -34,7 +34,7 @@ This is a collection of Reaper plugins I wrote to help me with some of my ambien
 
 ### MIDI Note Dropper
 
-**[midi-note-dropper.jsfx](midi-note-dropper.jsfx)**
+**[midi-note-dropper.jsfx](jsfx/midi-note-dropper.jsfx)**
 
 A simple but powerful tool that probabilistically drops incoming MIDI note-on events. Think of it as a "MIDI gate" based on random chance rather than velocity or other parameters.
 
@@ -64,7 +64,7 @@ A simple but powerful tool that probabilistically drops incoming MIDI note-on ev
 
 ### Phrase Maker
 
-**[phrase-maker.jsfx](phrase-maker.jsfx)**
+**[phrase-maker.jsfx](jsfx/phrase-maker.jsfx)**
 
 A basic generative phrase engine that tries to create melodic phrases based on musical theory. It understands some basic scales and chords, and tries to generate natural-sounding melodies. If music theory isn't your strong suit, you may find this helpful to create something that can serve as a starting point that you can then build on. I mostly use this to record a long track, listen to the generated phrases, and pick some that I like to play with.
 
