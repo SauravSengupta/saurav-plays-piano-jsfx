@@ -143,77 +143,6 @@ function get_base_note() (
   (slider4 + 1) * 12 + 12;  // slider4=0 -> 24 (C1), slider4=3 -> 60 (C4)
 );
 
-// Debug counters
-debug_reset_count = 0;
-debug_notes_generated = 0;
-debug_last_num_available = 0;
-debug_escape_fallback = 0;  // Track when escape fallback is used
-debug_first_avail = -1;     // First available note
-debug_last_avail = -1;      // Last available note
-debug_build_escape_dir = 0; // Escape direction when build_available_notes was called
-debug_build_escape_rem = 0; // Escape remaining when build_available_notes was called
-debug_build_last_note = -1; // Last note when build_available_notes was called
-debug_last_selected_weight = 0; // Weight of the selected note
-debug_ultimate_fallback = 0; // Count ultimate fallbacks
-
-// Debug history - last 8 notes with state info
-debug_hist_size = 8;
-debug_hist_idx = 0;
-debug_hist_notes = 600;     // note played
-debug_hist_weights = 610;   // weight of note selected
-debug_hist_avail = 620;     // number of available notes
-debug_hist_dir = 630;       // phrase direction at time
-debug_hist_pos = 640;       // position in phrase
-i = 0;
-loop(debug_hist_size,
-  debug_hist_notes[i] = -1;
-  debug_hist_weights[i] = 0;
-  debug_hist_avail[i] = 0;
-  debug_hist_dir[i] = 0;
-  debug_hist_pos[i] = 0;
-  i += 1;
-);
-
-// Phrase planning debug
-debug_phrase_start = -1;
-debug_phrase_end = -1;
-debug_phrase_distance = 0;
-debug_phrase_iterations = 0;
-debug_start_scale_idx = 0;
-debug_end_scale_idx = 0;
-debug_start_octave = 0;
-debug_phrase_dir = 0;
-debug_endpoint_r = 0;
-debug_endpoint_selected = -1;
-debug_endpoint_cumulative = 0;
-// Debug first 4 notes of phrase build
-debug_note0 = -1;
-debug_note1 = -1;
-debug_note2 = -1;
-debug_note3 = -1;
-
-// State machine debug
-debug_state_rest = 0;
-debug_state_active = 0;
-debug_state_idle = 0;
-debug_build_attempts = 0;
-debug_build_failures = 0;
-debug_last_failure_reason = 0;  // 0=none, 1=not chord tone, 2=out of bounds
-
-// Enhanced failure tracking
-debug_fail_no_chord = 0;        // Failed: endpoint not chord tone after retries
-debug_fail_out_of_bounds = 0;  // Failed: notes went out of bounds
-debug_fail_no_scale_idx = 0;   // Failed: endpoint not in scale array
-debug_attempted_phrase_len = 0; // Last attempted phrase length
-debug_endpoint_distance_from_top = 0;  // Semitones from top boundary
-debug_endpoint_distance_from_bot = 0;  // Semitones from bottom boundary
-debug_last_rest_assigned = 0;   // Last rest value assigned
-debug_rest_assign_count = 0;    // How many times rest was assigned
-debug_rand_out_of_range = 0;    // Count of my_rand() returning invalid values
-debug_rand_phrase_len = -1;     // First random used for phrase length
-debug_rand_endpoint_pick = -1;  // First random used for endpoint selection
-debug_rand_direction_pick = -1; // First random used for direction choice
-
 // Random seed - will be initialized on first block
 rand_state = 1;
 rand_calls = 0;
@@ -222,15 +151,6 @@ rand_init_blocks = 0;       // Count blocks during initialization
 phrase_build_counter = 0;  // Increments on each phrase build for entropy
 last_endpoint_note = -1;   // Track last endpoint to avoid repeats
 last_play_position = 0;    // Track play position for re-seeding detection
-
-// Debug: track last 10 random values
-debug_rand_history = 900;  // Array for last 10 random values
-debug_rand_idx = 0;        // Current position in circular buffer
-i = 0;
-loop(10,
-  debug_rand_history[i] = -1;
-  i += 1;
-);
 
 function seed_random() local(temp_seed, mix1, mix2, entropy1, entropy2) (
   // Accumulate entropy from multiple sources over time
@@ -291,13 +211,10 @@ function my_rand() local(result) (
   
   // Validation: should always be 0-1
   (result < 0 || result > 1) ? (
-    debug_rand_out_of_range += 1;
     result = 0.5;  // Safe fallback
   );
   
   // Store in debug history
-  debug_rand_history[debug_rand_idx] = result;
-  debug_rand_idx = (debug_rand_idx + 1) % 10;
   
   result;
 );
@@ -458,8 +375,6 @@ function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class
   
   // Weighted random selection
   r = my_rand();
-  (debug_rand_endpoint_pick < 0) ? debug_rand_endpoint_pick = r;
-  debug_endpoint_r = r;
   cumulative = 0;
   selected = available_notes[0];
   i = 0;
@@ -469,10 +384,8 @@ function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class
       i = num_available;  // Skip remaining iterations
     ) : (
       cumulative += note_weights[i];
-      debug_endpoint_cumulative = cumulative;
       r <= cumulative ? (
         selected = available_notes[i];
-        debug_endpoint_selected = selected;
         done = 1;
       );
       i += 1;
@@ -500,8 +413,6 @@ function pick_and_validate_endpoint() local(retry_count) (
   phrase_end_note = pick_phrase_endpoint();
   
   // Log endpoint distances from hard boundaries
-  debug_endpoint_distance_from_top = temp_top_note - phrase_end_note;
-  debug_endpoint_distance_from_bot = phrase_end_note - temp_base_note;
   
   // Avoid repeating same endpoint consecutively
   retry_count = 0;
@@ -541,7 +452,6 @@ function determine_phrase_direction() local(room_above, room_below, semitones_ne
     room_above >= semitones_needed ? (
       // Both directions work - pick randomly
       rdir = my_rand();
-      (debug_rand_direction_pick < 0) ? debug_rand_direction_pick = rdir;
       direction = rdir < 0.5 ? 1 : -1;
     ) : (
       // Only room below - must go UP
@@ -611,10 +521,6 @@ function find_scale_indices(temp_count, direction) local(i, endpoint_idx, start_
 // Helper: Build phrase notes with passing tones, repeats, and direction changes
 function build_phrase_notes(direction, temp_count) local(i, note_idx, current_direction, steps_since_dir_change, prev_midi_note, prev_note_type, build_failed, midi_note, note_class, curr_note_type, use_repeat, passing_candidate, passing_class, distance_from_top, distance_from_bottom, near_top_boundary, near_bottom_boundary, min_steps_between, dir_change_prob, skip_amount, passed_endpoint, overshoot_limit, endpoint_overshoot) (
   // Clear debug notes
-  debug_note0 = -1;
-  debug_note1 = -1;
-  debug_note2 = -1;
-  debug_note3 = -1;
   
   // Probabilities
   passing_tone_prob = slider8 == 1 ? 0.12 : 0;
@@ -755,19 +661,10 @@ function build_phrase_notes(direction, temp_count) local(i, note_idx, current_di
           );
         );
         
-        // Debug first 4 notes
-        i == 0 ? debug_note0 = midi_note;
-        i == 1 ? debug_note1 = midi_note;
-        i == 2 ? debug_note2 = midi_note;
-        i == 3 ? debug_note3 = midi_note;
-        
-        debug_start_octave = floor(midi_note / 12);
-        
         // Check soft bounds
         (midi_note < temp_soft_base || midi_note > temp_soft_top) ? (
           build_failed = 1;
           phrase_note_count = -1;
-          debug_fail_out_of_bounds += 1;
         ) : (
           phrase_notes[i] = midi_note;
           prev_midi_note = midi_note;
@@ -793,11 +690,7 @@ function build_phrase_notes(direction, temp_count) local(i, note_idx, current_di
 
 // Build entire phrase by walking scale from calculated start to pre-selected end
 function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, temp_count, success) (
-  debug_build_attempts += 1;
   phrase_build_counter += 1;
-  debug_rand_phrase_len = -1;
-  debug_rand_endpoint_pick = -1;
-  debug_rand_direction_pick = -1;
   
   // Step 1: Initialize boundaries
   init_phrase_boundaries();
@@ -810,14 +703,11 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
     max_phrase = min(slider7, slider5 * 7);
     min_phrase = min(slider6, max_phrase);
     r_len = my_rand();
-    debug_rand_phrase_len = r_len;
     phrase_length = min_phrase + floor(r_len * (max_phrase - min_phrase + 1));
-    debug_attempted_phrase_len = phrase_length;
     
     // Step 4: Determine direction
     direction = determine_phrase_direction();
     phrase_direction = direction;
-    debug_phrase_dir = direction;
     
     // Step 5: Build temp scale array
     temp_count = build_temp_scale_array();
@@ -825,8 +715,6 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
     // Step 6: Find scale indices
     find_scale_indices(temp_count, direction) ? (
       // Valid indices found
-      debug_start_scale_idx = temp_start_idx;
-      debug_end_scale_idx = temp_endpoint_idx;
       
       // Step 7: Build phrase notes
       success = build_phrase_notes(direction, temp_count);
@@ -836,35 +724,21 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
         phrase_active = 1;
         phrase_note_count = 0;
         last_note = -1;
-        debug_phrase_start = phrase_notes[0];
-        debug_phrase_end = phrase_notes[phrase_length - 1];
-        debug_phrase_distance = abs(phrase_notes[phrase_length - 1] - phrase_notes[0]);
-        debug_phrase_iterations = 0;
-        debug_last_failure_reason = 0;
       ) : (
         // Build failed - out of bounds
         phrase_active = 0;
         between_phrase_rest = 1;
-        debug_build_failures += 1;
-        debug_last_failure_reason = 2;
-        debug_fail_out_of_bounds += 1;
       );
     ) : (
       // Failed to find valid indices
       phrase_active = 0;
       between_phrase_rest = 1;
       phrase_note_count = -1;
-      debug_fail_no_scale_idx += 1;
-      debug_build_failures += 1;
-      debug_last_failure_reason = 3;
     );
   ) : (
     // Failed to find chord tone endpoint
     phrase_active = 0;
     between_phrase_rest = 1;
-    debug_build_failures += 1;
-    debug_last_failure_reason = 1;
-    debug_fail_no_chord += 1;
   );
 );
 
@@ -918,7 +792,6 @@ slider14 == 1 ? ( // Generation enabled
     send_note_on(pending_swing_note, pending_swing_velocity);
     last_note = pending_swing_note;
     phrase_note_count += 1;
-    debug_notes_generated += 1;
   );
   
   // Check if we've crossed a beat boundary (quarter note)
@@ -935,8 +808,6 @@ slider14 == 1 ? ( // Generation enabled
       min_rest = floor(4 - slider9 * 3);  // 4 at 0.1, 1 at 1.0
       min_rest = max(1, min_rest);
       between_phrase_rest = min_rest + floor(my_rand() * (max_rest - min_rest + 1));
-      debug_last_rest_assigned = between_phrase_rest;
-      debug_rest_assign_count += 1;
       send_note_off();
     );
   );
@@ -946,7 +817,6 @@ slider14 == 1 ? ( // Generation enabled
 
     // Handle between-phrase rest
     between_phrase_rest > 0 ? (
-      debug_state_rest += 1;
       between_phrase_rest_max += 1;
       between_phrase_rest -= 1;
       between_phrase_rest == 0 ? (
@@ -962,7 +832,6 @@ slider14 == 1 ? ( // Generation enabled
       );
       send_note_off();
     ) : phrase_active ? (
-      debug_state_active += 1;
       // We're in a phrase - play pre-calculated notes
       phrase_note_count < phrase_length ? (
         // Rest probability within phrase: higher density = fewer rests
@@ -1017,16 +886,9 @@ slider14 == 1 ? ( // Generation enabled
             send_note_on(new_note, velocity);
             last_note = new_note;
             phrase_note_count += 1;
-            debug_notes_generated += 1;
           );
 
           // Record to debug history
-          debug_hist_notes[debug_hist_idx] = new_note;
-          debug_hist_weights[debug_hist_idx] = 1.0;  // All scale tones equal
-          debug_hist_avail[debug_hist_idx] = phrase_length;
-          debug_hist_dir[debug_hist_idx] = phrase_direction;
-          debug_hist_pos[debug_hist_idx] = phrase_note_count;
-          debug_hist_idx = (debug_hist_idx + 1) % debug_hist_size;
         );
       ) : (
         // Phrase complete - wait for beat boundary before transitioning to rest
@@ -1037,7 +899,6 @@ slider14 == 1 ? ( // Generation enabled
         send_note_off();
       );
     ) : (
-      debug_state_idle += 1;
       // Not in phrase and no rest pending - start a phrase (always, not randomly)
       build_phrase_from_endpoint();
     );
@@ -1047,283 +908,4 @@ slider14 == 1 ? ( // Generation enabled
 // Pass through incoming MIDI
 while(midirecv(offset, msg1, msg2, msg3)) (
   midisend(offset, msg1, msg2, msg3);
-);
-
-@gfx 500 360
-gfx_clear = 0x1a1a2e;
-
-// Title
-gfx_setfont(1, "Arial", 16, 'b');
-gfx_set(0.9, 0.9, 0.9);
-gfx_x = 10; gfx_y = 10;
-gfx_drawstr("Generative Melody Maker");
-
-// Current state
-gfx_setfont(1, "Arial", 12);
-gfx_x = 10; gfx_y = 40;
-gfx_set(0.7, 0.8, 1);
-
-// Show root and scale
-root_names = 400;
-root_names[0] = "C"; root_names[1] = "C#"; root_names[2] = "D"; root_names[3] = "D#";
-root_names[4] = "E"; root_names[5] = "F"; root_names[6] = "F#"; root_names[7] = "G";
-root_names[8] = "G#"; root_names[9] = "A"; root_names[10] = "A#"; root_names[11] = "B";
-
-scale_names = 420;
-scale_names[0] = "Major"; scale_names[1] = "Minor"; scale_names[2] = "Dorian";
-scale_names[3] = "Mixolydian"; scale_names[4] = "Lydian"; scale_names[5] = "Phrygian";
-scale_names[6] = "Harmonic Minor";
-
-gfx_drawstr("Scale: ");
-// Note: JSFX doesn't support string arrays well, showing indices instead
-gfx_drawnumber(slider1, 0);
-gfx_drawstr(" ");
-gfx_drawnumber(slider2, 0);
-
-gfx_x = 10; gfx_y = 60;
-gfx_drawstr("Current Chord: ");
-gfx_drawnumber(slider3, 0);
-
-gfx_x = 10; gfx_y = 80;
-gfx_drawstr("Last Note: ");
-last_note >= 0 ? gfx_drawnumber(last_note, 0) : gfx_drawstr("--");
-
-gfx_x = 10; gfx_y = 100;
-gfx_drawstr("Note Playing: ");
-note_playing > 0 ? gfx_drawnumber(note_playing, 0) : gfx_drawstr("--");
-
-// Phrase planning debug
-gfx_x = 10; gfx_y = 120;
-gfx_set(1, 1, 0.3);
-gfx_drawstr("Phrase: ");
-debug_note0 >= 0 ? gfx_drawnumber(debug_note0, 0) : gfx_drawstr("--");
-gfx_drawstr("-");
-debug_note1 >= 0 ? gfx_drawnumber(debug_note1, 0) : gfx_drawstr("--");
-gfx_drawstr("-");
-debug_note2 >= 0 ? gfx_drawnumber(debug_note2, 0) : gfx_drawstr("--");
-gfx_drawstr("-");
-debug_note3 >= 0 ? gfx_drawnumber(debug_note3, 0) : gfx_drawstr("--");
-gfx_drawstr(" End: ");
-debug_phrase_end >= 0 ? gfx_drawnumber(debug_phrase_end, 0) : gfx_drawstr("--");
-
-gfx_x = 10; gfx_y = 135;
-gfx_set(0.7, 0.7, 1);
-gfx_drawstr("StartIdx: ");
-gfx_drawnumber(debug_start_scale_idx, 0);
-gfx_drawstr(" EndIdx: ");
-gfx_drawnumber(debug_end_scale_idx, 0);
-gfx_drawstr(" Oct: ");
-gfx_drawnumber(debug_start_octave, 0);
-gfx_drawstr(" Dir: ");
-debug_phrase_dir > 0 ? gfx_drawstr("UP") : debug_phrase_dir < 0 ? gfx_drawstr("DN") : gfx_drawstr("--");
-
-gfx_x = 10; gfx_y = 150;
-gfx_set(1, 0.8, 0.3);
-gfx_drawstr("Endpoint R: ");
-gfx_drawnumber(debug_endpoint_r, 3);
-gfx_drawstr(" Selected: ");
-gfx_drawnumber(debug_endpoint_selected, 0);
-gfx_drawstr(" Cumul: ");
-gfx_drawnumber(debug_endpoint_cumulative, 3);
-
-// State machine debug
-gfx_x = 10; gfx_y = 165;
-gfx_set(1, 0.5, 0.5);
-gfx_drawstr("STATE: rest=");
-gfx_drawnumber(between_phrase_rest, 0);
-gfx_drawstr(" active=");
-gfx_drawnumber(phrase_active, 0);
-gfx_drawstr(" pos=");
-gfx_drawnumber(phrase_note_count, 0);
-gfx_drawstr("/");
-gfx_drawnumber(phrase_length, 0);
-
-gfx_x = 10; gfx_y = 180;
-gfx_set(1, 0.3, 0.3);
-gfx_drawstr("Builds: ");
-gfx_drawnumber(debug_build_attempts, 0);
-gfx_drawstr(" Fails: ");
-gfx_drawnumber(debug_build_failures, 0);
-gfx_drawstr(" LastFail: ");
-debug_last_failure_reason == 0 ? gfx_drawstr("OK") :
-debug_last_failure_reason == 1 ? gfx_drawstr("NO_CHORD") :
-debug_last_failure_reason == 2 ? gfx_drawstr("OOB") :
-debug_last_failure_reason == 3 ? gfx_drawstr("NO_IDX") : gfx_drawstr("?");
-
-gfx_x = 10; gfx_y = 195;
-gfx_set(1, 0.3, 0.3);
-gfx_drawstr("Fail Detail: NoChord=");
-gfx_drawnumber(debug_fail_no_chord, 0);
-gfx_drawstr(" OOB=");
-gfx_drawnumber(debug_fail_out_of_bounds, 0);
-gfx_drawstr(" NoIdx=");
-gfx_drawnumber(debug_fail_no_scale_idx, 0);
-
-gfx_x = 10; gfx_y = 210;
-gfx_set(1, 0.8, 0.3);
-gfx_drawstr("Attempt: PhraseLen=");
-gfx_drawnumber(debug_attempted_phrase_len, 0);
-gfx_drawstr(" EndDist: Top=");
-gfx_drawnumber(debug_endpoint_distance_from_top, 0);
-gfx_drawstr(" Bot=");
-gfx_drawnumber(debug_endpoint_distance_from_bot, 0);
-
-gfx_x = 10; gfx_y = 225;
-gfx_set(0.5, 1, 1);
-gfx_drawstr("Rest Tracking: Last=");
-gfx_drawnumber(debug_last_rest_assigned, 0);
-gfx_drawstr(" Count=");
-gfx_drawnumber(debug_rest_assign_count, 0);
-gfx_drawstr(" RandFails=");
-gfx_drawnumber(debug_rand_out_of_range, 0);
-
-gfx_x = 10; gfx_y = 240;
-gfx_set(0.5, 1, 0.5);
-gfx_drawstr("Ticks: rest=");
-gfx_drawnumber(debug_state_rest, 0);
-gfx_drawstr(" active=");
-gfx_drawnumber(debug_state_active, 0);
-gfx_drawstr(" idle=");
-gfx_drawnumber(debug_state_idle, 0);
-
-// Random number debug
-gfx_x = 10; gfx_y = 255;
-gfx_set(1, 1, 0.5);
-gfx_drawstr("Last 10 Random Values (most recent first):");
-i = 0;
-loop(10,
-  hist_pos = (debug_rand_idx - 1 - i + 10) % 10;
-  gfx_x = 10 + (i % 5) * 90; gfx_y = 270 + floor(i / 5) * 15;
-  debug_rand_history[hist_pos] >= 0 ? (
-    gfx_drawnumber(debug_rand_history[hist_pos], 5);
-  ) : (
-    gfx_drawstr("---");
-  );
-  i += 1;
-);
-
-// Show rand_state value
-gfx_x = 10; gfx_y = 300;
-gfx_set(1, 0.5, 1);
-gfx_drawstr("rand_state: ");
-gfx_drawnumber(rand_state, 0);
-gfx_drawstr(" init_blocks: ");
-gfx_drawnumber(rand_init_blocks, 0);
-gfx_drawstr(" initialized: ");
-gfx_drawnumber(rand_initialized, 0);
-
-// First random draws used in phrase build
-gfx_x = 10; gfx_y = 315;
-gfx_set(1, 0.8, 0.8);
-gfx_drawstr("Rand picks: len=");
-debug_rand_phrase_len >= 0 ? gfx_drawnumber(debug_rand_phrase_len, 5) : gfx_drawstr("--");
-gfx_drawstr(" endpoint=");
-debug_rand_endpoint_pick >= 0 ? gfx_drawnumber(debug_rand_endpoint_pick, 5) : gfx_drawstr("--");
-gfx_drawstr(" dir=");
-debug_rand_direction_pick >= 0 ? gfx_drawnumber(debug_rand_direction_pick, 5) : gfx_drawstr("--");
-
-// Debug info
-gfx_set(0.6, 0.6, 0.6);
-gfx_x = 250; gfx_y = 40;
-gfx_drawstr("DEBUG - Selection History (most recent first):");
-gfx_x = 250; gfx_y = 55;
-gfx_drawstr("Note | Weight | Avail | Dir | Pos");
-
-i = 0;
-loop(debug_hist_size,
-  hist_idx = (debug_hist_idx - 1 - i + debug_hist_size) % debug_hist_size;
-  gfx_x = 250; gfx_y = 70 + i * 15;
-  
-  debug_hist_notes[hist_idx] >= 0 ? (
-    gfx_drawnumber(debug_hist_notes[hist_idx], 0);
-    gfx_drawstr("   | ");
-    gfx_drawnumber(debug_hist_weights[hist_idx], 3);
-    gfx_drawstr("  | ");
-    gfx_drawnumber(debug_hist_avail[hist_idx], 0);
-    gfx_drawstr("   | ");
-    debug_hist_dir[hist_idx] == 1 ? gfx_drawstr("↑") : debug_hist_dir[hist_idx] == -1 ? gfx_drawstr("↓") : gfx_drawstr("•");
-    gfx_drawstr(" | ");
-    gfx_drawnumber(debug_hist_pos[hist_idx], 0);
-  );
-  
-  i += 1;
-);
-
-// Piano roll visualization (commented out for readability of random debug)
-// gfx_y = 260;
-// gfx_x = 10;
-// gfx_set(0.5, 0.5, 0.5);
-// gfx_drawstr("Available Notes (brightness = weight):");
-// 
-// piano_y = 280;
-// piano_height = 60;
-// key_width = 8;
-// 
-// // Draw boundary lines
-// boundary_base = get_base_note();
-// boundary_high = boundary_base + (slider5 * 12) - 3;
-// boundary_low = boundary_base + 3;
-// 
-// gfx_set(1, 0, 0, 0.3);
-// x_high = 10 + (boundary_high - boundary_base) * key_width;
-// gfx_rect(x_high, piano_y - 5, key_width, piano_height + 10);
-// x_low = 10 + (boundary_low - boundary_base) * key_width;
-// gfx_rect(x_low, piano_y - 5, key_width, piano_height + 10);
-// 
-// i = 0;
-// loop(num_available,
-//   midi_note = available_notes[i];
-//   weight = note_weights[i];
-// 
-//   x_pos = 10 + (midi_note - get_base_note()) * key_width;
-//   note_class = midi_note % 12;
-// 
-//   // Color based on note type and weight
-//   is_chord_tone(note_class) ? (
-//     gfx_set(0.2 + weight * 2, 0.8, 0.3 + weight); // Green for chord tones
-//   ) : is_scale_tone(note_class) ? (
-//     gfx_set(0.3 + weight * 2, 0.5 + weight, 0.9); // Blue for scale tones
-//   ) : (
-//     gfx_set(0.9, 0.5 + weight, 0.2 + weight); // Orange for passing tones
-//   );
-// 
-//   // Highlight current note
-//   midi_note == note_playing ? (
-//     gfx_set(1, 1, 0); // Yellow for playing note
-//   );
-// 
-//   gfx_rect(x_pos, piano_y, key_width - 1, piano_height * weight + 10);
-// 
-//   i += 1;
-// );
-// 
-// // Legend
-// gfx_y = 285;
-// gfx_x = 10;
-// gfx_set(0.3, 0.9, 0.4);
-// gfx_rect(10, 285, 15, 15);
-// gfx_set(0.9, 0.9, 0.9);
-// gfx_x = 30; gfx_y = 287;
-// gfx_drawstr("Chord Tone");
-// 
-// gfx_set(0.4, 0.6, 1);
-// gfx_rect(120, 285, 15, 15);
-// gfx_set(0.9, 0.9, 0.9);
-// gfx_x = 140; gfx_y = 287;
-// gfx_drawstr("Scale Tone");
-// 
-// gfx_set(1, 0.6, 0.3);
-// gfx_rect(230, 285, 15, 15);
-// gfx_set(0.9, 0.9, 0.9);
-// gfx_x = 250; gfx_y = 287;
-// gfx_drawstr("Passing Tone");
-
-// Status
-gfx_x = 10; gfx_y = 320;
-slider14 == 1 ? (
-  gfx_set(0.3, 1, 0.3);
-  gfx_drawstr("GENERATING");
-) : (
-  gfx_set(1, 0.3, 0.3);
-  gfx_drawstr("PAUSED");
 );
