@@ -110,7 +110,7 @@ chord_quality[2] = 1; // III - minor (iii in major key)
 chord_quality[3] = 0; // IV - major
 chord_quality[4] = 0; // V - major
 chord_quality[5] = 1; // VI - minor (vi in major key)
-chord_quality[6] = 2; // VII - diminished (vii° in major key)
+chord_quality[6] = 2; // VII - diminished (vii dim in major key)
 chord_quality[7] = 1; // i - minor
 chord_quality[8] = 1; // ii - minor
 chord_quality[9] = 1; // iii - minor
@@ -813,7 +813,7 @@ slider12 == 1 ? ( // Generation enabled
       phrase_complete_waiting_beat = 0;
       // Rest between phrases controlled by density
         // Max/min rests computed via REST_* constants and density
-        // Lower density → longer rests; higher density → shorter rests
+        // Lower density -> longer rests; higher density -> shorter rests
       max_rest = floor(REST_MAX_BASE - slider9 * REST_MAX_SLOPE);
       min_rest = floor(REST_MIN_BASE - slider9 * REST_MIN_SLOPE);
       min_rest = max(REST_MIN_FLOOR, min_rest);
@@ -848,7 +848,7 @@ slider12 == 1 ? ( // Generation enabled
         new_note = phrase_notes[phrase_note_count];
 
         // Inner rest probability: density-scaled and weighted by note role
-        // Higher weight (root) → higher rest probability; lower weight → lower probability
+        // Higher weight (root) -> higher rest probability; lower weight -> lower probability
         base_inner_rest = INNER_REST_BASE * (1 - slider9);
         rest_weight = get_note_selection_weight(new_note);
         rest_multiplier = rest_weight / CHORD_ROOT_WEIGHT; // Normalize to [0,1] with root as 1.0

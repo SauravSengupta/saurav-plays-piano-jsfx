@@ -7,7 +7,7 @@
         <author>Saurav Plays Piano</author>
       </metadata>
       <version name="1.0.0">
-        <source>https://github.com/YOUR_USERNAME/JSFX/raw/main/midi-note-dropper.jsfx</source>
+        <source>https://github.com/YOUR_USERNAME/JSFX/raw/main/jsfx/midi-note-dropper.jsfx</source>
       </version>
     </reapack>
     <reapack name="phrase-maker.jsfx" type="effect">
@@ -16,7 +16,7 @@
         <author>Saurav Plays Piano</author>
       </metadata>
       <version name="1.0.0">
-        <source>https://github.com/YOUR_USERNAME/JSFX/raw/main/phrase-maker.jsfx</source>
+        <source>https://github.com/YOUR_USERNAME/JSFX/raw/main/jsfx/phrase-maker.jsfx</source>
       </version>
     </reapack>
   </category>

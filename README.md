@@ -11,7 +11,12 @@ This is a collection of Reaper plugins I wrote to help me with some of my ambien
 ### Option 1: ReaPack (Recommended)
 
 1. In Reaper, go to **Extensions → ReaPack → Import repositories...**
-2. Paste this URL: `https://raw.githubusercontent.com/SauravPlaysPiano/JSFX/main/index.xml`
+2. Paste this URL (raw index):
+
+  ```
+  https://raw.githubusercontent.com/SauravPlaysPiano/JSFX/master/index.xml
+  ```
+
 3. Click OK and ReaPack will download the latest versions automatically.
 4. Browse available plugins via **Extensions → ReaPack → Browse packages**
 
