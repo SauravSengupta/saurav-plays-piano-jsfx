@@ -40,18 +40,29 @@ out_pin:none
 // ============================================
 
 // Weight constants for note selection
-CHORD_TONE_WEIGHT = 95;
-SCALE_TONE_WEIGHT = 4;
-PASSING_TONE_WEIGHT = 1;
+CHORD_ROOT_WEIGHT = 60;   // Root of chord - strongest
+CHORD_FIFTH_WEIGHT = 25;  // Perfect 5th - strong
+CHORD_THIRD_WEIGHT = 10;  // Major/minor 3rd - moderate
+SCALE_TONE_WEIGHT = 4;    // Non-chord scale degrees
+PASSING_TONE_WEIGHT = 1;  // Chromatic passing tones
 
 // Probability constants
-PASSING_TONE_PROB_ENABLED = 0.12;
-REPEAT_CHORD_PROB = 0.15;
-REPEAT_SCALE_PROB = 0.08;
-REPEAT_PASSING_PROB = 0.03;
+PASSING_TONE_PROB_ENABLED = 0.12;  // Chance to insert chromatic passing tone
+REPEAT_CHORD_PROB = 0.15;          // Chance to repeat previous chord tone
+REPEAT_SCALE_PROB = 0.08;          // Chance to repeat previous scale tone
+REPEAT_PASSING_PROB = 0.03;        // Chance to repeat previous passing tone
+INNER_REST_BASE = 0.6;  // Base inner rest probability scale at low density
 
-// Boundary extension in semitones
-SOFT_BOUNDARY_EXTENSION = 5;
+// Phrase movement constants (controls note-to-note stepping behavior)
+MAX_JUMP = 4;  // Maximum scale notes to jump; longer jumps have lower probability
+
+// Rest behavior constants (controls between-phrase rest lengths)
+REST_MAX_BASE = 8;      // Base max rest (beats) at low density
+REST_MAX_SLOPE = 6;     // How much max rest decreases as density increases
+REST_MIN_BASE = 4;      // Base min rest (beats) at low density
+REST_MIN_SLOPE = 3;     // How much min rest decreases as density increases
+REST_MIN_FLOOR = 12;    // Minimum allowed rest (beats)
+REST_MAX_CEILING = 24;  // Maximum allowed rest (beats)
 
 // ============================================
 // MEMORY LAYOUT - SCALE DEFINITIONS
@@ -273,6 +284,21 @@ function is_chord_tone(note_class) local(i, found) (
   found;
 );
 
+// Get the weight for a note based on its chord role
+function get_chord_tone_weight(note_class) local(i, weight) (
+  weight = 0;
+  i = 0;
+  loop(3,
+    note_class == current_chord_tones[i] ? (
+      i == 0 ? weight = CHORD_ROOT_WEIGHT :   // Root
+      i == 1 ? weight = CHORD_THIRD_WEIGHT :  // 3rd
+      weight = CHORD_FIFTH_WEIGHT;            // 5th
+    );
+    i += 1;
+  );
+  weight;
+);
+
 function is_scale_tone(note_class) local(i, found) (
   found = 0;
   i = 0;
@@ -281,6 +307,20 @@ function is_scale_tone(note_class) local(i, found) (
     i += 1;
   );
   found;
+);
+
+// Unified note selection weight: chord tones > scale tones > passing tones
+function get_note_selection_weight(midi_note) local(note_class, weight) (
+  note_class = midi_note % 12;
+  weight = 0;
+  is_chord_tone(note_class) ? (
+    weight = get_chord_tone_weight(note_class);
+  ) : is_scale_tone(note_class) ? (
+    weight = SCALE_TONE_WEIGHT;
+  ) : (
+    weight = PASSING_TONE_WEIGHT;
+  );
+  weight;
 );
 
 // Check how recently a note was played (returns 0-1, where 1 = most recent)
@@ -340,16 +380,8 @@ function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class
   idx = 0;
   loop(range,
     (midi_note <= soft_top) ? (
-      note_class = midi_note % 12;
-      weight = 0;
-      
-      is_chord_tone(note_class) ? (
-        weight = CHORD_TONE_WEIGHT;
-      ) : is_scale_tone(note_class) ? (
-        weight = SCALE_TONE_WEIGHT;
-      ) : (
-        weight = PASSING_TONE_WEIGHT;
-      );
+      // Compute selection weight for this MIDI note
+      weight = get_note_selection_weight(midi_note);
       
       available_notes[num_available] = midi_note;
       note_weights[num_available] = weight;
@@ -662,8 +694,8 @@ function build_phrase_notes(direction, temp_count) local(i, note_idx, current_di
           i += 1;
           steps_since_dir_change += 1;
           
-          // Advance note_idx
-          skip_amount = floor(my_rand() * 2) + 1;
+          // Advance note_idx: random bias toward smaller jumps via squared random
+          skip_amount = 1 + floor(my_rand() * my_rand() * MAX_JUMP);
           current_direction > 0 ? (
             note_idx += skip_amount;
           ) : (
@@ -780,11 +812,11 @@ slider12 == 1 ? ( // Generation enabled
     phrase_complete_waiting_beat ? (
       phrase_complete_waiting_beat = 0;
       // Rest between phrases controlled by density
-      // At density 0.1 (sparse): 4-8 beats rest
-      // At density 1.0 (busy): 1-2 beats rest
-      max_rest = floor(8 - slider9 * 6);  // 8 at 0.1, 2 at 1.0
-      min_rest = floor(4 - slider9 * 3);  // 4 at 0.1, 1 at 1.0
-      min_rest = max(1, min_rest);
+        // Max/min rests computed via REST_* constants and density
+        // Lower density → longer rests; higher density → shorter rests
+      max_rest = floor(REST_MAX_BASE - slider9 * REST_MAX_SLOPE);
+      min_rest = floor(REST_MIN_BASE - slider9 * REST_MIN_SLOPE);
+      min_rest = max(REST_MIN_FLOOR, min_rest);
       between_phrase_rest = min_rest + floor(my_rand() * (max_rest - min_rest + 1));
       send_note_off();
     );
@@ -802,8 +834,8 @@ slider12 == 1 ? ( // Generation enabled
         build_phrase_from_endpoint();
         between_phrase_rest_max = 0;
       );
-      // Safety: if rest has gone on too long (>2 beats), force generation
-      (between_phrase_rest_max > 2) ? (
+      // Safety: if rest has gone on too long (>MAX_REST beats), force generation
+      (between_phrase_rest_max > MAX_REST) ? (
         between_phrase_rest = 0;
         build_phrase_from_endpoint();
         between_phrase_rest_max = 0;
@@ -812,17 +844,21 @@ slider12 == 1 ? ( // Generation enabled
     ) : phrase_active ? (
       // We're in a phrase - play pre-calculated notes
       phrase_note_count < phrase_length ? (
-        // Rest probability within phrase: higher density = fewer rests
-        // At density 0.1 (sparse): 60% rest chance
-        // At density 1.0 (busy): 0% rest chance
-        inner_rest_prob = 0.6 * (1 - slider9);
+        // Play the next note index now for rest weighting
+        new_note = phrase_notes[phrase_note_count];
+
+        // Inner rest probability: density-scaled and weighted by note role
+        // Higher weight (root) → higher rest probability; lower weight → lower probability
+        base_inner_rest = INNER_REST_BASE * (1 - slider9);
+        rest_weight = get_note_selection_weight(new_note);
+        rest_multiplier = rest_weight / CHORD_ROOT_WEIGHT; // Normalize to [0,1] with root as 1.0
+        inner_rest_prob = max(0, min(1, base_inner_rest * rest_multiplier));
         (phrase_note_count > 0 && my_rand() < inner_rest_prob) ? (
           send_note_off();
         ) : (
           send_note_off();
 
           // Play the next note from pre-calculated phrase
-          new_note = phrase_notes[phrase_note_count];
           
           // Calculate velocity based on melodic direction and position
           velocity = slider10 + (slider11 - slider10) / 2;  // Start at midpoint
