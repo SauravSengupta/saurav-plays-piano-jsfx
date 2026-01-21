@@ -1,22 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="SauravPlaysPiano JSFX">
+<index version="1.0" name="SauravPlaysPiano JSFX">
+  <!-- Effects -->
   <category name="MIDI">
-    <reapack name="midi-note-dropper.jsfx" type="effect">
-      <metadata>
-        <description>MIDI Note Dropper - Probabilistically drops MIDI notes for rhythmic variation</description>
-        <author>Saurav Plays Piano</author>
-      </metadata>
-      <version name="1.0.0">
-        <source>https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/refs/heads/main/jsfx/midi-note-dropper.jsfx</source>
+    <reapack name="MIDI Note Dropper" type="effect" desc="midi-note-dropper.jsfx">
+      <version name="1.0.0" author="Saurav Plays Piano" time="01-20-2026">
+        <source main="main">https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/refs/heads/main/jsfx/midi-note-dropper.jsfx</source>
       </version>
     </reapack>
-    <reapack name="phrase-maker.jsfx" type="effect">
-      <metadata>
-        <description>Phrase Maker - Generative phrase engine with scale/chord awareness</description>
-        <author>Saurav Plays Piano</author>
-      </metadata>
-      <version name="1.0.0">
-        <source>https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/refs/heads/main/jsfx/phrase-maker.jsfx</source>
+    <reapack name="Phrase Maker" type="effect" desc="phrase-maker.jsfx">
+      <version name="1.0.0" author="Saurav Plays Piano" time="01-20-2026">
+        <source main="main">https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/refs/heads/main/jsfx/phrase-maker.jsfx</source>
       </version>
     </reapack>
   </category>
