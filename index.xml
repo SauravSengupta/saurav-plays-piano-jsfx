@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<index version="1" name="Saurav Plays Piano JSFX" commit="9027c634bc8589f3f28e7824162d27c4de097f53">
+  <category name="jsfx">
+    <reapack name="midi-note-dropper.jsfx" type="effect" desc="MIDI Note Dropper">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 MIDI Note Dropper\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Probabilistically drops incoming MIDI note-on events based on a percentage. Use this to thin out dense MIDI patterns, create rhythmic interest, or add controlled randomness to arpeggios and sequences.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0.0" author="Saurav Plays Piano" time="2026-01-21T08:29:34Z">
+        <source>https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/9027c634bc8589f3f28e7824162d27c4de097f53/jsfx/midi-note-dropper.jsfx</source>
+      </version>
+    </reapack>
+    <reapack name="phrase-maker.jsfx" type="effect" desc="Phrase Maker">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Phrase Maker\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A basic generative phrase engine that tries to create melodic phrases based on musical theory.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0.0" author="Saurav Plays Piano" time="2026-01-21T08:29:34Z">
+        <source>https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/9027c634bc8589f3f28e7824162d27c4de097f53/jsfx/phrase-maker.jsfx</source>
+      </version>
+    </reapack>
+  </category>
+</index>
