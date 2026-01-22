@@ -66,12 +66,11 @@ A simple tool that probabilistically drops incoming MIDI note-on events. Think o
 
 **[phrase-maker.jsfx](jsfx/phrase-maker.jsfx)**
 
-A basic generative phrase engine that tries to create melodic phrases based on musical theory. It understands some basic scales and chords, and tries to generate natural-sounding melodies. If music theory isn't your strong suit, you may find this helpful to create something that can serve as a starting point that you can then build on. I mostly use this to record a long track, listen to the generated phrases, and pick some that I like to play with.
+A generative phrase engine that tries to create melodic phrases based on simple musical theory. It understands some scales and chords, and tries to generate natural-sounding melodies. If music theory isn't your strong suit, you may find this helpful to create something that can serve as a starting point that you can then build on. I mostly use this to record a long track, listen to the generated phrases, and then pick some to work on further.
 
 #### Limitations
 
 - It still mostly sounds like computer generated music
-- I haven't figured out how to make it random, it will play the same set of phrases each time you restart the plugin
 - The phrases don't quite resolve to the chords. For example, in the key of C, I don't hear much difference when the chord is I (C) vs. IV (F)
 
 #### Parameters
