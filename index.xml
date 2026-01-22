@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="SauravPlaysPiano JSFX" commit="c779f352d532925f053e7b05f5fee5c197c7d680">
+<index version="1" name="SauravPlaysPiano JSFX" commit="53a1dc401c34ce9bf9c011a10c7d3f85d8a658db">
   <category name="jsfx">
     <reapack name="midi-note-dropper.jsfx" type="effect" desc="MIDI Note Dropper">
       <metadata>
@@ -29,6 +29,9 @@
       </metadata>
       <version name="1.0.0" author="Saurav Plays Piano" time="2026-01-21T08:29:34Z">
         <source>https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/9027c634bc8589f3f28e7824162d27c4de097f53/jsfx/phrase-maker.jsfx</source>
+      </version>
+      <version name="1.0.1" author="Saurav Plays Piano" time="2026-01-22T04:29:54Z">
+        <source>https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/53a1dc401c34ce9bf9c011a10c7d3f85d8a658db/jsfx/phrase-maker.jsfx</source>
       </version>
     </reapack>
   </category>
