@@ -180,83 +180,8 @@ function get_base_note() (
   (slider4 + 1) * 12 + 12;  // slider4=0 -> 24 (C1), slider4=3 -> 60 (C4)
 );
 
-// ============================================
-// RANDOM NUMBER GENERATION
-// ============================================
-
-// Random seed - will be initialized on first block
-rand_state = 1;
-rand_calls = 0;
-rand_initialized = 0;
-rand_init_blocks = 0;       // Count blocks during initialization
-phrase_build_counter = 0;  // Increments on each phrase build for entropy
-last_endpoint_note = -1;   // Track last endpoint to avoid repeats
-last_play_position = 0;    // Track play position for re-seeding detection
-
-function seed_random() local(temp_seed, mix1, mix2, entropy1, entropy2) (
-  // Accumulate entropy from multiple sources over time
-  // Each call adds more entropy to rand_state
-  
-  // Get current time with microsecond precision
-  entropy1 = floor(time_precise() * 1000000);
-  
-  // Add sample-based entropy (varies with audio buffer processing)
-  entropy2 = (samplesblock * 104729) ^ (srate * 7919);
-  
-  // If this is initial seeding, use time as base
-  // Otherwise, mix with existing state
-  rand_init_blocks == 0 ? (
-    temp_seed = entropy1 ^ entropy2;
-  ) : (
-    // Mix new entropy into existing state
-    temp_seed = rand_state ^ entropy1 ^ entropy2 ^ (rand_init_blocks * 12345);
-  );
-  
-  // Add playback position if available
-  play_position > 0 ? (
-    temp_seed = temp_seed ^ floor(play_position * 999983);
-  );
-  
-  // Multiple rounds of mixing to ensure good distribution
-  mix1 = temp_seed;
-  mix1 = (mix1 ^ 61) ^ (mix1 >> 16);
-  mix1 = mix1 + (mix1 << 3);
-  mix1 = mix1 ^ (mix1 >> 4);
-  mix1 = mix1 * 0x27d4eb2d;
-  mix1 = mix1 ^ (mix1 >> 15);
-  
-  // Second round of mixing
-  mix2 = mix1;
-  mix2 = (mix2 ^ (mix2 >> 16)) * 0x7feb352d;
-  mix2 = (mix2 ^ (mix2 >> 15)) * 0x846ca68b;
-  mix2 = mix2 ^ (mix2 >> 16);
-  
-  // Ensure odd number for better PRNG behavior
-  rand_state = (mix2 | 1);
-  rand_init_blocks += 1;
-  
-  // Mark as fully initialized after collecting entropy from several blocks
-  rand_init_blocks >= 5 ? rand_initialized = 1;
-);
-
-function my_rand() local(result) (
-  // Re-seed every ~100 calls to prevent state cycling
-  rand_calls = (rand_calls + 1) % 100;
-  rand_calls == 0 ? (
-    // Mix current state with fresh entropy from multiple sources
-    rand_state = (rand_state ^ floor(time_precise() * 1000) ^ (phrase_build_counter * 7919) ^ (samplesblock * 31)) | 1;
-  );
-  
-  rand_state = (rand_state * 1103515245 + 12345) & 0x7fffffff;
-  result = rand_state / 0x7fffffff;
-  
-  // Validation: should always be 0-1
-  (result < 0 || result > 1) ? (
-    result = 0.5;  // Safe fallback
-  );
-  
-  result;
-);
+// Track last endpoint to avoid repeats
+last_endpoint_note = -1;
 
 // ============================================
 // SCALE & CHORD FUNCTIONS
@@ -424,7 +349,7 @@ function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class
   );
   
   // Weighted random selection
-  random_val = my_rand();
+  random_val = rand();
   cumulative = 0;
   selected = available_notes[0];
   idx = 0;
@@ -444,7 +369,7 @@ function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class
   
   // Safety: if selected is still 0 or invalid, pick a random note from available
   (selected < soft_base || selected > soft_top) ? (
-    selected = available_notes[floor(my_rand() * num_available)];
+    selected = available_notes[floor(rand() * num_available)];
   );
   
   selected;
@@ -455,7 +380,7 @@ function pick_and_validate_endpoint() local(retry_count) (
   // Consume random values to break cycling patterns
   retry_count = 0;
   loop(5 + (phrase_build_counter % 7),
-    my_rand();
+    rand();
     retry_count += 1;
   );
   
@@ -499,7 +424,7 @@ function determine_phrase_direction() local(room_above, room_below, semitones_ne
   room_below >= semitones_needed ? (
     room_above >= semitones_needed ? (
       // Both directions work - pick randomly
-      random_direction = my_rand();
+      random_direction = rand();
       direction = random_direction < 0.5 ? 1 : -1;
     ) : (
       // Only room below - must go UP
@@ -625,18 +550,18 @@ function build_exploration_phase(start_idx, num_notes, temp_count)
     // Random direction changes based on phrase length
     !near_top_boundary && !near_bottom_boundary ? (
       phrase_length <= 8 ? (
-        min_steps_between = 4 + floor(my_rand() * 3);
+        min_steps_between = 4 + floor(rand() * 3);
         dir_change_prob = 0.2;
       ) : phrase_length <= 14 ? (
-        min_steps_between = 3 + floor(my_rand() * 2);
+        min_steps_between = 3 + floor(rand() * 2);
         dir_change_prob = 0.3;
       ) : (
-        min_steps_between = 2 + floor(my_rand() * 2);
+        min_steps_between = 2 + floor(rand() * 2);
         dir_change_prob = 0.4;
       );
 
       steps_since_dir_change >= min_steps_between ? (
-        my_rand() < dir_change_prob ? (
+        rand() < dir_change_prob ? (
           current_direction = -current_direction;
           steps_since_dir_change = 0;
         );
@@ -650,9 +575,9 @@ function build_exploration_phase(start_idx, num_notes, temp_count)
     use_repeat = 0;
     (i > 0 && prev_midi_note > 0 && consecutive_repeats < MAX_CONSECUTIVE_REPEATS) ? (
       prev_note_type == 1 ? (
-        my_rand() < REPEAT_CHORD_PROB ? use_repeat = 1;
+        rand() < REPEAT_CHORD_PROB ? use_repeat = 1;
       ) : prev_note_type == 2 ? (
-        my_rand() < REPEAT_SCALE_PROB ? use_repeat = 1;
+        rand() < REPEAT_SCALE_PROB ? use_repeat = 1;
       );
     );
 
@@ -677,7 +602,7 @@ function build_exploration_phase(start_idx, num_notes, temp_count)
         skip_amount = 1;
         consecutive_skips = 0;
       ) : (
-        skip_amount = 1 + floor(my_rand() * my_rand() * MAX_JUMP);
+        skip_amount = 1 + floor(rand() * rand() * MAX_JUMP);
       );
 
       // Track consecutive skips >= 2 (thirds and larger sound like arpeggios)
@@ -708,7 +633,7 @@ function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, 
       prev_resolution_midi) (
 
   // Decide approach direction for final note
-  approach_from_below = my_rand() < APPROACH_FROM_BELOW_PROB;
+  approach_from_below = rand() < APPROACH_FROM_BELOW_PROB;
 
   note_idx = start_note_idx;
   target_idx = end_note_idx;
@@ -748,7 +673,7 @@ function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, 
         distance_to_target = target_idx - note_idx;
 
         // Determine if we should step toward target
-        should_step_toward = my_rand() < RESOLUTION_STEP_BIAS;
+        should_step_toward = rand() < RESOLUTION_STEP_BIAS;
 
         // Calculate direction needed to reach target
         distance_to_target > 0 ? (
@@ -768,7 +693,7 @@ function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, 
             consecutive_large_steps = 0;
           ) : (
             // Heavily favor stepwise motion (85% step of 1, 15% step of 2)
-            skip_amount = my_rand() < 0.85 ? 1 : 2;
+            skip_amount = rand() < 0.85 ? 1 : 2;
           );
           // Don't overshoot the target area
           skip_amount = min(skip_amount, max(1, abs(distance_to_target) - 2));
@@ -783,11 +708,11 @@ function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, 
         ) : (
           // Close to target, allow small wandering or hold position
           consecutive_large_steps = 0;  // Reset on wander
-          my_rand() < 0.4 ? (
+          rand() < 0.4 ? (
             // Sometimes stay on same note for a beat
             note_idx = note_idx;
-          ) : my_rand() < 0.5 ? (
-            note_idx += (my_rand() < 0.5 ? 1 : -1);
+          ) : rand() < 0.5 ? (
+            note_idx += (rand() < 0.5 ? 1 : -1);
           );
         );
 
@@ -883,7 +808,7 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
     // Step 3: Determine phrase length
     max_phrase = min(slider7, slider5 * 7);
     min_phrase = min(slider6, max_phrase);
-    random_length = my_rand();
+    random_length = rand();
     phrase_length = min_phrase + floor(random_length * (max_phrase - min_phrase + 1));
 
     // Step 4: Determine direction (which way to start exploring)
@@ -944,36 +869,28 @@ build_scale();
 build_chord_tones();
 
 @block
-// Seed random - collect entropy over first several blocks for better randomization
-// This helps ensure different seeds on each plugin instance
-rand_initialized == 0 ? (
-  seed_random();
-  // Keep position tracker updated during init to avoid false context switch on first real block
-  last_play_position_checked = play_position;
-) : (
-  // Detect context switch: large jump in play_position or transition to/from zero
-  // When REAPER loses focus or pauses/resumes, play_position can jump dramatically
-  position_jump = abs(play_position - last_play_position_checked);
-  is_context_switch = (position_jump > 100 || (last_play_position_checked > 0 && play_position == 0));
-  
-  is_context_switch ? (
-    // Context switch detected - clear all note and phrase state to prevent stray notes
-    send_note_off();
-    notes_sent_this_beat = 0;
-    next_note_is_eighth = 0;
-    phrase_active = 0;  // Stop any phrase playback
-    phrase_complete_waiting_beat = 0;  // Clear waiting state
-    between_phrase_rest = 0;  // Clear rest timing
-    rest_just_started = 0;
-    phrase_just_built = 0;
-    last_beat_num = -1;  // Force beat re-sync
-    last_beat_pos = -1;  // Force beat re-sync
-  );
-  
-  last_play_position_checked = play_position;
+// Detect context switch: large jump in play_position or transition to/from zero
+// When REAPER loses focus or pauses/resumes, play_position can jump dramatically
+position_jump = abs(play_position - last_play_position_checked);
+is_context_switch = (position_jump > 100 || (last_play_position_checked > 0 && play_position == 0));
+
+is_context_switch ? (
+  // Context switch detected - clear all note and phrase state to prevent stray notes
+  send_note_off();
+  notes_sent_this_beat = 0;
+  next_note_is_eighth = 0;
+  phrase_active = 0;  // Stop any phrase playback
+  phrase_complete_waiting_beat = 0;  // Clear waiting state
+  between_phrase_rest = 0;  // Clear rest timing
+  rest_just_started = 0;
+  phrase_just_built = 0;
+  last_beat_num = -1;  // Force beat re-sync
+  last_beat_pos = -1;  // Force beat re-sync
 );
 
-(slider12 == 1 && play_position > 0 && rand_initialized) ? ( // Generation enabled (skip if stopped or not initialized)
+last_play_position_checked = play_position;
+
+(slider12 == 1 && play_position > 0) ? ( // Generation enabled (skip if stopped)
   // Get current beat position (quarter notes)
   beat_num = floor(beat_position);
   beat_pos = floor(beat_position * 4) / 4; // Quantize to 16th notes
@@ -1001,7 +918,7 @@ rand_initialized == 0 ? (
       min_rest = max(REST_MIN_FLOOR, min_rest);
       max_rest = min(REST_MAX_CEILING, max_rest);
       max_rest = max(min_rest, max_rest);
-      between_phrase_rest = min_rest + floor(my_rand() * (max_rest - min_rest + 1));
+      between_phrase_rest = min_rest + floor(rand() * (max_rest - min_rest + 1));
       rest_just_started = 1;  // Prevent immediate decrement on same tick
       send_note_off();
     );
@@ -1076,7 +993,7 @@ rand_initialized == 0 ? (
           rest_emphasis = 0.5 + rest_multiplier * 0.5;
           inner_rest_prob = max(0, min(1, base_inner_rest * rest_emphasis));
 
-          (phrase_note_count == 0 || my_rand() >= inner_rest_prob) ? (
+          (phrase_note_count == 0 || rand() >= inner_rest_prob) ? (
             // Prevent duplicate note-on on same beat (protection against context switches)
             notes_sent_this_beat == 0 ? (
               send_note_off();
@@ -1091,14 +1008,14 @@ rand_initialized == 0 ? (
               last_note >= 0 ? (
                 note_diff = new_note - last_note;
                 note_diff > 0 ? (
-                  velocity = slider10 + (slider11 - slider10) * 0.6 + my_rand() * (slider11 - slider10) * 0.2;
+                  velocity = slider10 + (slider11 - slider10) * 0.6 + rand() * (slider11 - slider10) * 0.2;
                 ) : note_diff < 0 ? (
-                  velocity = slider10 + (slider11 - slider10) * 0.3 + my_rand() * (slider11 - slider10) * 0.2;
+                  velocity = slider10 + (slider11 - slider10) * 0.3 + rand() * (slider11 - slider10) * 0.2;
                 ) : (
-                  velocity = slider10 + (slider11 - slider10) * 0.45 + my_rand() * (slider11 - slider10) * 0.1;
+                  velocity = slider10 + (slider11 - slider10) * 0.45 + rand() * (slider11 - slider10) * 0.1;
                 );
               ) : (
-                velocity = slider10 + my_rand() * (slider11 - slider10);
+                velocity = slider10 + rand() * (slider11 - slider10);
               );
 
               velocity = max(1, min(127, floor(velocity)));
@@ -1109,7 +1026,7 @@ rand_initialized == 0 ? (
               notes_sent_this_beat = 1;  // Mark that we sent a note this beat
 
               // Randomly flag next note as 8th note (plays at next half-beat)
-              (phrase_note_count < phrase_length && my_rand() < slider13) ? (
+              (phrase_note_count < phrase_length && rand() < slider13) ? (
                 next_note_is_eighth = 1;
               );
             );
