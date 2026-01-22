@@ -20,10 +20,10 @@ slider5:2<1,4,1>Octave Range
 
 // === PHRASE SETTINGS ===
 slider6:3<2,8,1>Min Phrase Length
-slider7:7<3,20,1>Max Phrase Length
+slider7:15<3,20,1>Max Phrase Length
 // slider8:1<0,1,{Off,On}>Use Passing Tones
-slider9:0.5<0.1,1,0.05>Density (sparse to busy)
-slider13:0.2<0,1,0.05>8th Note Amount
+slider9:0.75<0,1,0.05>Density (sparse to busy)
+slider13:0.5<0,1,0.05>8th Note Amount
 
 // === PERFORMANCE ===
 slider10:40<1,127,1>Min Velocity
@@ -61,16 +61,19 @@ MAX_JUMP = 4;  // Maximum scale notes to jump; longer jumps have lower probabili
 // Phase balance constants (controls exploration vs resolution)
 EXPLORATION_RATIO = 0.65;     // Fraction of phrase spent exploring (0.5-0.8)
 RESOLUTION_START_DISTANCE = 6; // Start resolving when within N scale steps of target
-RESOLUTION_STEP_BIAS = 0.7;   // Probability of stepping toward target in resolution (0.5-1.0)
+RESOLUTION_STEP_BIAS = 0.5;   // Probability of stepping toward target in resolution (0.5-1.0) - lowered to allow more wandering
 APPROACH_FROM_BELOW_PROB = 0.6; // Probability of approaching final note from below
+MAX_CONSECUTIVE_REPEATS = 2;  // Maximum times a note can repeat consecutively
+MAX_CONSECUTIVE_SKIPS = 1;    // Maximum consecutive large intervals (>=2 scale steps) - set to 1 to prevent arpeggio patterns
 
 // Rest behavior constants (controls between-phrase rest lengths)
-REST_MAX_BASE = 8;      // Base max rest (beats) at low density
+// These are in 16th notes (beat_pos increments by 0.25 per 16th note)
+REST_MAX_BASE = 8;      // Base max rest at low density
 REST_MAX_SLOPE = 6;     // How much max rest decreases as density increases
-REST_MIN_BASE = 4;      // Base min rest (beats) at low density
+REST_MIN_BASE = 4;      // Base min rest at low density
 REST_MIN_SLOPE = 3;     // How much min rest decreases as density increases
-REST_MIN_FLOOR = 12;    // Minimum allowed rest (beats)
-REST_MAX_CEILING = 24;  // Maximum allowed rest (beats)
+REST_MIN_FLOOR = 1;     // Absolute minimum rest (was 12, way too high!)
+REST_MAX_CEILING = 16;  // Maximum allowed rest
 
 // ============================================
 // MEMORY LAYOUT - SCALE DEFINITIONS
@@ -138,13 +141,16 @@ last_beat_pos = -1;
 last_beat_num = -1;
 samples_since_note = 0;
 phrase_complete_waiting_beat = 0;  // Flag: phrase done, waiting for beat boundary to start rest
+next_note_is_eighth = 0;           // Flag: next note should play at half-beat (8th note timing)
+notes_sent_this_beat = 0;          // Prevent duplicate notes on same beat during context switches
+last_play_position_checked = -999; // Track play position for context switch detection
 
 // Phrase generation state
 phrase_active = 0;              // Are we currently in a phrase?
 phrase_length = 0;              // Notes to generate in current phrase
 phrase_note_count = 0;          // Notes generated so far
 phrase_rest_count = 0;          // Rest beats between phrases
-between_phrase_rest = 1;        // Beats of rest needed between phrases
+between_phrase_rest = 0;        // Beats of rest needed between phrases (start at 0 so first phrase builds immediately)
 between_phrase_rest_max = 0;    // Maximum rest counter to force phrase generation
 phrase_start_note = -1;         // Starting note of phrase
 phrase_end_note = -1;           // Ending note of phrase (planned)
@@ -157,6 +163,16 @@ last_was_passing = 0;
 
 // Pre-calculated phrase notes
 phrase_notes = 700;  // Array of MIDI notes for this phrase
+
+// Timing info for display (recorded during playback)
+// 0 = quarter note, 1 = 8th note (plays sooner), 2 = rest before (plays later)
+phrase_timing = 750;  // Array parallel to phrase_notes
+
+// Flag to allow phrase to play immediately after being built (skip rest check on same tick)
+phrase_just_built = 0;
+
+// Flag to skip rest decrement on the same tick rest was started
+rest_just_started = 0;
 
 // Convert octave slider (0-5 = C1-C6) to MIDI base note
 // C1 = MIDI 24, C2 = 36, C3 = 48, C4 = 60, C5 = 72, C6 = 84
@@ -549,18 +565,38 @@ function find_nearest_scale_index(target_midi, temp_count) local(i, best_idx, be
   best_idx;
 );
 
+// Clamp a candidate note so jumps never exceed 7 semitones
+function clamp_jump(prev_note, candidate_note, temp_count)
+    local(diff, direction, target_note, idx) (
+  (prev_note < 0) ? candidate_note : (
+    diff = abs(candidate_note - prev_note);
+    diff <= 7 ? (
+      candidate_note;
+    ) : (
+      direction = candidate_note >= prev_note ? 1 : -1;
+      target_note = prev_note + direction * 7;
+      idx = find_nearest_scale_index(target_note, temp_count);
+      temp_scale_notes[idx];
+    );
+  );
+);
+
 // Phase 1: Exploration - free movement with direction changes
 function build_exploration_phase(start_idx, num_notes, temp_count)
     local(i, note_idx, current_direction, steps_since_dir_change, prev_midi_note,
           midi_note, note_class, distance_from_top, distance_from_bottom,
           near_top_boundary, near_bottom_boundary, min_steps_between,
-          dir_change_prob, skip_amount, use_repeat, prev_note_type, curr_note_type) (
+          dir_change_prob, skip_amount, use_repeat, prev_note_type, curr_note_type,
+          consecutive_repeats, consecutive_skips, last_skip_size) (
 
   note_idx = start_idx;
   current_direction = phrase_direction;
   steps_since_dir_change = 0;
   prev_midi_note = -1;
   prev_note_type = 0;
+  consecutive_repeats = 0;
+  consecutive_skips = 0;
+  last_skip_size = 1;
 
   i = 0;
   loop(num_notes,
@@ -610,9 +646,9 @@ function build_exploration_phase(start_idx, num_notes, temp_count)
     // Determine note type
     curr_note_type = is_chord_tone(note_class) ? 1 : 2;
 
-    // Check for repeat (not on first note)
+    // Check for repeat (not on first note, and limit consecutive repeats)
     use_repeat = 0;
-    (i > 0 && prev_midi_note > 0) ? (
+    (i > 0 && prev_midi_note > 0 && consecutive_repeats < MAX_CONSECUTIVE_REPEATS) ? (
       prev_note_type == 1 ? (
         my_rand() < REPEAT_CHORD_PROB ? use_repeat = 1;
       ) : prev_note_type == 2 ? (
@@ -622,13 +658,36 @@ function build_exploration_phase(start_idx, num_notes, temp_count)
 
     use_repeat ? (
       phrase_notes[i] = prev_midi_note;
+      consecutive_repeats += 1;
+      consecutive_skips = 0;  // Reset skip counter on repeat
     ) : (
+      // Clamp jump size before committing the note
+      midi_note = i > 0 ? clamp_jump(prev_midi_note, midi_note, temp_count) : midi_note;
+      note_idx = find_nearest_scale_index(midi_note, temp_count);
+      note_class = midi_note % 12;
+
       phrase_notes[i] = midi_note;
       prev_midi_note = midi_note;
       prev_note_type = curr_note_type;
+      consecutive_repeats = 0;  // Reset repeat counter
 
-      // Advance with random skip
-      skip_amount = 1 + floor(my_rand() * my_rand() * MAX_JUMP);
+      // Advance with random skip, but limit consecutive large skips
+      consecutive_skips >= MAX_CONSECUTIVE_SKIPS ? (
+        // Force a step of 1 after too many large skips
+        skip_amount = 1;
+        consecutive_skips = 0;
+      ) : (
+        skip_amount = 1 + floor(my_rand() * my_rand() * MAX_JUMP);
+      );
+
+      // Track consecutive skips >= 2 (thirds and larger sound like arpeggios)
+      skip_amount >= 2 ? (
+        consecutive_skips += 1;
+      ) : (
+        consecutive_skips = 0;
+      );
+
+      last_skip_size = skip_amount;
       note_idx += current_direction * skip_amount;
     );
 
@@ -642,15 +701,21 @@ function build_exploration_phase(start_idx, num_notes, temp_count)
 
 // Phase 2: Resolution - guided movement toward the endpoint
 function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, num_notes, temp_count)
-    local(i, note_idx, target_idx, notes_remaining, distance_to_target,
-          step_direction, midi_note, note_class, should_step_toward,
-          skip_amount, approach_from_below, penultimate_idx) (
+  local(i, note_idx, target_idx, notes_remaining, distance_to_target,
+      step_direction, midi_note, note_class, should_step_toward,
+      skip_amount, approach_from_below, penultimate_idx,
+      last_step_size, consecutive_large_steps, prev_resolution_note,
+      prev_resolution_midi) (
 
   // Decide approach direction for final note
   approach_from_below = my_rand() < APPROACH_FROM_BELOW_PROB;
 
   note_idx = start_note_idx;
   target_idx = end_note_idx;
+  consecutive_large_steps = 0;
+  last_step_size = 1;
+  prev_resolution_note = -1;
+    prev_resolution_midi = -1;
 
   i = 0;
   loop(num_notes,
@@ -673,7 +738,11 @@ function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, 
         );
         note_idx = penultimate_idx;
         midi_note = temp_scale_notes[note_idx];
+        midi_note = prev_resolution_midi >= 0 ? clamp_jump(prev_resolution_midi, midi_note, temp_count) : midi_note;
+        note_idx = find_nearest_scale_index(midi_note, temp_count);
         phrase_notes[start_phrase_idx + i] = midi_note;
+        prev_resolution_midi = midi_note;
+        prev_resolution_note = note_idx;
       ) : (
         // Earlier resolution notes: progressively move toward target
         distance_to_target = target_idx - note_idx;
@@ -692,14 +761,32 @@ function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, 
 
         // If we're far from target or should step toward it, move in that direction
         (abs(distance_to_target) > RESOLUTION_START_DISTANCE || should_step_toward) ? (
-          // Step toward target, but allow some variation in step size
-          skip_amount = 1 + floor(my_rand() * 2);
+          // Limit consecutive skips > 1 to prevent arpeggio patterns (thirds sound like arpeggios)
+          consecutive_large_steps >= MAX_CONSECUTIVE_SKIPS ? (
+            // Force stepwise motion after too many skips
+            skip_amount = 1;
+            consecutive_large_steps = 0;
+          ) : (
+            // Heavily favor stepwise motion (85% step of 1, 15% step of 2)
+            skip_amount = my_rand() < 0.85 ? 1 : 2;
+          );
           // Don't overshoot the target area
           skip_amount = min(skip_amount, max(1, abs(distance_to_target) - 2));
           note_idx += step_direction * skip_amount;
+
+          // Track consecutive non-stepwise motion (skips >= 2 count as "large")
+          skip_amount >= 2 ? (
+            consecutive_large_steps += 1;
+          ) : (
+            consecutive_large_steps = 0;
+          );
         ) : (
-          // Close to target, allow small wandering
-          my_rand() < 0.3 ? (
+          // Close to target, allow small wandering or hold position
+          consecutive_large_steps = 0;  // Reset on wander
+          my_rand() < 0.4 ? (
+            // Sometimes stay on same note for a beat
+            note_idx = note_idx;
+          ) : my_rand() < 0.5 ? (
             note_idx += (my_rand() < 0.5 ? 1 : -1);
           );
         );
@@ -708,7 +795,12 @@ function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, 
         note_idx = max(0, min(temp_count - 1, note_idx));
 
         midi_note = temp_scale_notes[note_idx];
+        midi_note = prev_resolution_midi >= 0 ? clamp_jump(prev_resolution_midi, midi_note, temp_count) : midi_note;
+        note_idx = find_nearest_scale_index(midi_note, temp_count);
         phrase_notes[start_phrase_idx + i] = midi_note;
+        last_step_size = abs(note_idx - (i > 0 ? prev_resolution_note : note_idx));
+        prev_resolution_note = note_idx;
+        prev_resolution_midi = midi_note;
       );
     );
 
@@ -719,7 +811,8 @@ function build_resolution_phase(start_note_idx, end_note_idx, start_phrase_idx, 
 // Main phrase builder: Two-phase approach (exploration + resolution)
 function build_phrase_notes(direction, temp_count)
     local(exploration_notes, resolution_notes, start_idx, end_idx,
-          final_exploration_idx, current_note_idx) (
+          final_exploration_idx, current_note_idx, max_resolution_distance,
+          exploration_distance) (
 
   // Calculate phase lengths
   exploration_notes = floor(phrase_length * EXPLORATION_RATIO);
@@ -739,16 +832,36 @@ function build_phrase_notes(direction, temp_count)
     end_idx = find_nearest_scale_index(phrase_end_note, temp_count);
   );
 
-  // Calculate starting position based on direction and phrase length
-  // Start far enough away to allow exploration
-  start_idx = end_idx - (direction * floor(phrase_length * 1.2));
+  // Calculate max distance exploration can go based on resolution notes available
+  // Resolution can cover ~1.5 scale steps per note with current constraints (mostly stepwise)
+  // We want exploration to end within a distance that resolution can comfortably cover
+  max_resolution_distance = floor(resolution_notes * 1.3);
+
+  // Calculate starting position - don't start farther than resolution can handle
+  // Use the smaller of: phrase_length * 0.8 OR max_resolution_distance
+  exploration_distance = min(floor(phrase_length * 0.8), max_resolution_distance);
+  start_idx = end_idx - (direction * exploration_distance);
   start_idx = max(0, min(temp_count - 1, start_idx));
 
   // Phase 1: Exploration
   final_exploration_idx = build_exploration_phase(start_idx, exploration_notes, temp_count);
 
   // Phase 2: Resolution - start from where exploration ended
+  // But first, check if exploration ended too far from target
+  // If so, nudge it closer to ensure smooth resolution
   current_note_idx = max(0, min(temp_count - 1, final_exploration_idx));
+
+  // Safety check: if we're too far from target for the remaining notes, move closer
+  abs(current_note_idx - end_idx) > (resolution_notes * 2) ? (
+    // We're too far - move starting point closer to target
+    // Leave enough room for resolution to have musical movement
+    direction > 0 ? (
+      current_note_idx = max(0, end_idx - resolution_notes - 1);
+    ) : (
+      current_note_idx = min(temp_count - 1, end_idx + resolution_notes + 1);
+    );
+  );
+
   build_resolution_phase(current_note_idx, end_idx, exploration_notes, resolution_notes, temp_count);
 
   // Mark success
@@ -792,6 +905,7 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
         phrase_active = 1;
         phrase_note_count = 0;
         last_note = -1;
+        phrase_just_built = 1;  // Allow immediate play on this tick
       ) : (
         // Build failed
         phrase_active = 0;
@@ -834,20 +948,40 @@ build_chord_tones();
 // This helps ensure different seeds on each plugin instance
 rand_initialized == 0 ? (
   seed_random();
+  // Keep position tracker updated during init to avoid false context switch on first real block
+  last_play_position_checked = play_position;
 ) : (
-  // Check if we should re-seed (e.g., user stopped and restarted playback)
-  abs(play_position - last_play_position) > 10 ? (
-    rand_init_blocks = 0;  // Reset to re-accumulate entropy
-    rand_initialized = 0;
-    seed_random();
+  // Detect context switch: large jump in play_position or transition to/from zero
+  // When REAPER loses focus or pauses/resumes, play_position can jump dramatically
+  position_jump = abs(play_position - last_play_position_checked);
+  is_context_switch = (position_jump > 100 || (last_play_position_checked > 0 && play_position == 0));
+  
+  is_context_switch ? (
+    // Context switch detected - clear all note and phrase state to prevent stray notes
+    send_note_off();
+    notes_sent_this_beat = 0;
+    next_note_is_eighth = 0;
+    phrase_active = 0;  // Stop any phrase playback
+    phrase_complete_waiting_beat = 0;  // Clear waiting state
+    between_phrase_rest = 0;  // Clear rest timing
+    rest_just_started = 0;
+    phrase_just_built = 0;
+    last_beat_num = -1;  // Force beat re-sync
+    last_beat_pos = -1;  // Force beat re-sync
   );
-  last_play_position = play_position;
+  
+  last_play_position_checked = play_position;
 );
 
-slider12 == 1 ? ( // Generation enabled
+(slider12 == 1 && play_position > 0 && rand_initialized) ? ( // Generation enabled (skip if stopped or not initialized)
   // Get current beat position (quarter notes)
   beat_num = floor(beat_position);
   beat_pos = floor(beat_position * 4) / 4; // Quantize to 16th notes
+  
+  // Build first phrase immediately if none exists and no rest pending
+  (!phrase_active && between_phrase_rest == 0 && phrase_length == 0) ? (
+    build_phrase_from_endpoint();
+  );
   
   // Check if we've crossed a beat boundary (quarter note)
   beat_num != last_beat_num ? (
@@ -857,27 +991,44 @@ slider12 == 1 ? ( // Generation enabled
     phrase_complete_waiting_beat ? (
       phrase_complete_waiting_beat = 0;
       // Rest between phrases controlled by density
-        // Max/min rests computed via REST_* constants and density
-        // Lower density -> longer rests; higher density -> shorter rests
-      max_rest = floor(REST_MAX_BASE - slider9 * REST_MAX_SLOPE);
-      min_rest = floor(REST_MIN_BASE - slider9 * REST_MIN_SLOPE);
+      density = max(0, min(1, slider9));
+      // Lower density -> much longer rests; higher density -> shorter rests
+      rest_scale = 1 - density;            // 1.0 at sparse, 0.0 at busy
+      sparse_boost = 1 + rest_scale * 1.5; // 2.5x at fully sparse, 1x at fully busy
+      min_rest = ceil(REST_MIN_BASE * sparse_boost);
+      max_rest = ceil(REST_MAX_BASE * sparse_boost);
+      // Clamp bounds
       min_rest = max(REST_MIN_FLOOR, min_rest);
+      max_rest = min(REST_MAX_CEILING, max_rest);
+      max_rest = max(min_rest, max_rest);
       between_phrase_rest = min_rest + floor(my_rand() * (max_rest - min_rest + 1));
+      rest_just_started = 1;  // Prevent immediate decrement on same tick
       send_note_off();
     );
   );
 
   beat_pos != last_beat_pos ? (
     last_beat_pos = beat_pos;
+    notes_sent_this_beat = 0;  // Reset for new beat to allow next note
 
-    // Handle between-phrase rest
-    between_phrase_rest > 0 ? (
+    // Safety: if a rest is somehow pending while a phrase is still marked active,
+    // cancel the rest instead of treating it as a cut-short condition.
+    (phrase_active && between_phrase_rest > 0) ? (
+      between_phrase_rest = 0;
+      between_phrase_rest_max = 0;
+      rest_just_started = 0;
+    );
+
+    // Handle between-phrase rest (skip if phrase was just built or rest just started)
+    (between_phrase_rest > 0 && !phrase_just_built && !rest_just_started) ? (
       between_phrase_rest_max += 1;
       between_phrase_rest -= 1;
       between_phrase_rest == 0 ? (
         // Rest complete, build new phrase
         build_phrase_from_endpoint();
         between_phrase_rest_max = 0;
+        // Ensure rest stays at 0 so phrase can play on next tick
+        between_phrase_rest = 0;
       );
       // Safety: if rest has gone on too long (>MAX_REST beats), force generation
       (between_phrase_rest_max > MAX_REST) ? (
@@ -889,51 +1040,83 @@ slider12 == 1 ? ( // Generation enabled
     ) : phrase_active ? (
       // We're in a phrase - play pre-calculated notes
       phrase_note_count < phrase_length ? (
-        // Play the next note index now for rest weighting
-        new_note = phrase_notes[phrase_note_count];
+        // Determine if we should play a note on this beat position
+        // Quarter notes: play when beat_pos is a whole number (1.0, 2.0, 3.0, etc.)
+        // 8th notes: play at half-beats (1.5, 2.5, 3.5, etc.)
+        should_play_now = 0;
+        
+        // Check if we're on a whole beat or half-beat
+        beat_pos_mod = beat_pos - floor(beat_pos);  // Get fractional part
+        is_whole_beat = (beat_pos_mod < 0.01);      // Whole beat (1.0, 2.0, etc.)
+        is_half_beat = (abs(beat_pos_mod - 0.5) < 0.01);  // Half beat (1.5, 2.5, etc.)
+        
+        next_note_is_eighth ? (
+          // This note is flagged as 8th note - play at half-beat
+          is_half_beat ? (
+            should_play_now = 1;
+            next_note_is_eighth = 0;  // Clear flag after playing
+          );
+        ) : (
+          // Normal quarter note timing - play at whole beats
+          is_whole_beat ? (
+            should_play_now = 1;
+          );
+        );
 
-        // Inner rest probability: density-scaled and weighted by note role
-        // Higher weight (root) -> higher rest probability; lower weight -> lower probability
-        base_inner_rest = INNER_REST_BASE * (1 - slider9);
-        rest_weight = get_note_selection_weight(new_note);
-        rest_multiplier = rest_weight / CHORD_ROOT_WEIGHT; // Normalize to [0,1] with root as 1.0
-        inner_rest_prob = max(0, min(1, base_inner_rest * rest_multiplier));
-        (phrase_note_count == 0 || my_rand() >= inner_rest_prob) ? (
-          send_note_off();
+        should_play_now ? (
+          new_note = phrase_notes[phrase_note_count];
 
-          // Play the next note from pre-calculated phrase
-          
-          // Calculate velocity based on melodic direction and position
-          velocity = slider10 + (slider11 - slider10) / 2;  // Start at midpoint
-          
-          // If we have a previous note, adjust velocity by direction
-          last_note >= 0 ? (
-            note_diff = new_note - last_note;
-            // Going up: boost velocity toward max
-            note_diff > 0 ? (
-              velocity = slider10 + (slider11 - slider10) * 0.6 + my_rand() * (slider11 - slider10) * 0.2;
-            ) : note_diff < 0 ? (
-              // Going down: reduce velocity toward min
-              velocity = slider10 + (slider11 - slider10) * 0.3 + my_rand() * (slider11 - slider10) * 0.2;
-            ) : (
-              // Same note: midpoint with randomness
-              velocity = slider10 + (slider11 - slider10) * 0.45 + my_rand() * (slider11 - slider10) * 0.1;
+          // Inner rest probability: density-scaled and weighted by note role
+          density = max(0, min(1, slider9));
+          rest_scale = 1 - density;
+          base_inner_rest = INNER_REST_BASE * rest_scale * sqrt(rest_scale) * 1.6;
+          base_inner_rest = min(1, base_inner_rest);
+          rest_weight = get_note_selection_weight(new_note);
+          rest_multiplier = rest_weight / CHORD_ROOT_WEIGHT;
+          rest_emphasis = 0.5 + rest_multiplier * 0.5;
+          inner_rest_prob = max(0, min(1, base_inner_rest * rest_emphasis));
+
+          (phrase_note_count == 0 || my_rand() >= inner_rest_prob) ? (
+            // Prevent duplicate note-on on same beat (protection against context switches)
+            notes_sent_this_beat == 0 ? (
+              send_note_off();
+
+              // Record timing for display: was this note played as 8th note?
+              // (next_note_is_eighth was set by the previous note)
+              phrase_timing[phrase_note_count] = is_half_beat ? 1 : 0;  // 1 = 8th note
+
+              // Calculate velocity based on melodic direction
+              velocity = slider10 + (slider11 - slider10) / 2;
+
+              last_note >= 0 ? (
+                note_diff = new_note - last_note;
+                note_diff > 0 ? (
+                  velocity = slider10 + (slider11 - slider10) * 0.6 + my_rand() * (slider11 - slider10) * 0.2;
+                ) : note_diff < 0 ? (
+                  velocity = slider10 + (slider11 - slider10) * 0.3 + my_rand() * (slider11 - slider10) * 0.2;
+                ) : (
+                  velocity = slider10 + (slider11 - slider10) * 0.45 + my_rand() * (slider11 - slider10) * 0.1;
+                );
+              ) : (
+                velocity = slider10 + my_rand() * (slider11 - slider10);
+              );
+
+              velocity = max(1, min(127, floor(velocity)));
+
+              send_note_on(new_note, velocity);
+              last_note = new_note;
+              phrase_note_count += 1;
+              notes_sent_this_beat = 1;  // Mark that we sent a note this beat
+
+              // Randomly flag next note as 8th note (plays at next half-beat)
+              (phrase_note_count < phrase_length && my_rand() < slider13) ? (
+                next_note_is_eighth = 1;
+              );
             );
           ) : (
-            // First note: randomize within range
-            velocity = slider10 + my_rand() * (slider11 - slider10);
+            // Inner rest - mark this note as having a rest before it
+            phrase_timing[phrase_note_count] = 2;  // 2 = rest (skipped this beat)
           );
-          
-          // Clamp to valid MIDI velocity range
-          velocity = max(1, min(127, floor(velocity)));
-          
-          // Check if this note should be an 8th note (based on slider13)
-          is_eighth_note = my_rand() < slider13;
-          
-          // Play note at beat (8th notes play immediately, no swing)
-          send_note_on(new_note, velocity);
-          last_note = new_note;
-          phrase_note_count += 1;
         );
       ) : (
         // Phrase complete - wait for beat boundary before transitioning to rest
@@ -942,10 +1125,15 @@ slider12 == 1 ? ( // Generation enabled
         phrase_complete_waiting_beat = 1;
         // send_note_off();
       );
-    ) : (
+    ) : !phrase_complete_waiting_beat ? (
       // Not in phrase and no rest pending - start a phrase (always, not randomly)
       build_phrase_from_endpoint();
     );
+
+    // Clear phrase_just_built flag at end of beat_pos (after first note opportunity)
+    phrase_just_built = 0;
+    // Clear the rest_just_started flag at end of tick processing
+    rest_just_started = 0;
   );
 );
 
