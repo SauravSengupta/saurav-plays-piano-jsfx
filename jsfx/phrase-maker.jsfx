@@ -12,7 +12,7 @@ about:
 // === MUSICAL SETTINGS ===
 slider1:0<0,11,1{C,C#,D,D#,E,F,F#,G,G#,A,A#,B}>Root Note
 slider2:0<0,2,1{Major (bright happy),Minor (dark sad),Dorian (jazzy bittersweet)}>Scale
-slider3:0<0,11,1{I,II,III,IV,V,VI,VII,i,ii,iii,iv,v}>Current Chord (Roman Numeral)
+slider3:0<0,5,1{I,ii,iii,IV,V,vi}>Current Chord (Roman Numeral)
 
 // === RANGE SETTINGS ===
 slider4:3<0,5,1{C1,C2,C3,C4,C5,C6}>Base Octave
@@ -28,6 +28,15 @@ slider13:0.5<0,1,0.05>8th Note Amount
 // === PERFORMANCE ===
 slider10:40<1,127,1>Min Velocity
 slider11:100<1,127,1>Max Velocity
+
+// === PROGRESSION SEQUENCER ===
+slider15:0<0,1,{Off,Auto-Loop}>Progression Mode
+slider16:4<1,8,1>Loop Length (# of chords)
+slider17:0<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 1
+slider18:4<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 2
+slider19:5<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 3
+slider20:3<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 4
+slider21:2<1,8,1>Measures Per Chord
 
 // === SYSTEM ===
 slider12:1<0,1,{Off,On}>Enable Generation
@@ -53,18 +62,19 @@ PASSING_TONE_PROB_ENABLED = 0.12;  // Chance to insert chromatic passing tone
 REPEAT_CHORD_PROB = 0.15;          // Chance to repeat previous chord tone
 REPEAT_SCALE_PROB = 0.08;          // Chance to repeat previous scale tone
 REPEAT_PASSING_PROB = 0.03;        // Chance to repeat previous passing tone
-INNER_REST_BASE = 0.6;  // Base inner rest probability scale at low density
+INNER_REST_BASE = 0.6;             // Base inner rest probability scale at low density
 
 // Phrase movement constants (controls note-to-note stepping behavior)
 MAX_JUMP = 4;  // Maximum scale notes to jump; longer jumps have lower probability
 
 // Phase balance constants (controls exploration vs resolution)
-EXPLORATION_RATIO = 0.65;     // Fraction of phrase spent exploring (0.5-0.8)
-RESOLUTION_START_DISTANCE = 6; // Start resolving when within N scale steps of target
-RESOLUTION_STEP_BIAS = 0.5;   // Probability of stepping toward target in resolution (0.5-1.0) - lowered to allow more wandering
-APPROACH_FROM_BELOW_PROB = 0.6; // Probability of approaching final note from below
-MAX_CONSECUTIVE_REPEATS = 2;  // Maximum times a note can repeat consecutively
-MAX_CONSECUTIVE_SKIPS = 1;    // Maximum consecutive large intervals (>=2 scale steps) - set to 1 to prevent arpeggio patterns
+EXPLORATION_RATIO = 0.65;          // Fraction of phrase spent exploring (0.5-0.8)
+RESOLUTION_START_DISTANCE = 6;     // Start resolving when within N scale steps of target
+RESOLUTION_STEP_BIAS = 0.5;        // Probability of stepping toward target in resolution (0.5-1.0) - lowered to allow more wandering
+APPROACH_FROM_BELOW_PROB = 0.6;    // Probability of approaching final note from below
+MAX_CONSECUTIVE_REPEATS = 2;       // Maximum times a note can repeat consecutively
+MAX_CONSECUTIVE_SKIPS = 1;         // Maximum consecutive large intervals (>=2 scale steps) - set to 1 to prevent arpeggio patterns
+CHORD_BOUNDARY_RESPECT_PROB = 0.8; // Probability of ending phrase near chord boundary (0.8 = 80% respect, 20% overshoot)
 
 // Rest behavior constants (controls between-phrase rest lengths)
 // These are in quarter notes (decremented once per beat_num change)
@@ -94,37 +104,23 @@ scale_dorian[0] = 0; scale_dorian[1] = 2; scale_dorian[2] = 3; scale_dorian[3] =
 scale_dorian[4] = 7; scale_dorian[5] = 9; scale_dorian[6] = 10;
 
 // Chord degree offsets (scale degrees, 0-indexed)
-// Major chords: I, IV, V (degrees 0, 3, 4)
-// Minor chords: ii, iii, vi (degrees 1, 2, 5)
-// Diminished: vii (degree 6)
+// I (0), ii (1), iii (2), IV (3), V (4), vi (5)
 chord_degrees = 100;
 chord_degrees[0] = 0;  // I
-chord_degrees[1] = 1;  // II
-chord_degrees[2] = 2;  // III
+chord_degrees[1] = 1;  // ii
+chord_degrees[2] = 2;  // iii
 chord_degrees[3] = 3;  // IV
 chord_degrees[4] = 4;  // V
-chord_degrees[5] = 5;  // VI
-chord_degrees[6] = 6;  // VII
-chord_degrees[7] = 0;  // i (minor)
-chord_degrees[8] = 1;  // ii
-chord_degrees[9] = 2;  // iii
-chord_degrees[10] = 3; // iv
-chord_degrees[11] = 4; // v
+chord_degrees[5] = 5;  // vi
 
 // Chord quality (0=major, 1=minor, 2=dim)
 chord_quality = 120;
 chord_quality[0] = 0; // I - major
-chord_quality[1] = 1; // II - minor (ii in major key)
-chord_quality[2] = 1; // III - minor (iii in major key)
+chord_quality[1] = 1; // ii - minor
+chord_quality[2] = 1; // iii - minor
 chord_quality[3] = 0; // IV - major
 chord_quality[4] = 0; // V - major
-chord_quality[5] = 1; // VI - minor (vi in major key)
-chord_quality[6] = 2; // VII - diminished (vii dim in major key)
-chord_quality[7] = 1; // i - minor
-chord_quality[8] = 1; // ii - minor
-chord_quality[9] = 1; // iii - minor
-chord_quality[10] = 1; // iv - minor
-chord_quality[11] = 1; // v - minor
+chord_quality[5] = 1; // vi - minor
 
 // Working arrays
 current_scale = 200;      // 7 notes
@@ -152,11 +148,35 @@ phrase_slot_index = 0;    // Current playback position
 phrase_rest_after = 0;    // Quarter notes of rest after this phrase
 phrase_start_beat = 0;    // Beat position when phrase started
 
+// Cache for pre-generated next chord's phrases
+cached_phrase_events = 400;      // Pre-generated phrase events for next chord
+cached_phrase_velocities = 480;  // Pre-generated phrase velocities
+cached_phrase_slot_count = 0;    // Slot count for cached phrase
+cached_is_valid = 0;             // Cache validation flag
+// Fingerprint to detect configuration changes (chord_index + 4 chord slider values)
+cached_chord_index = -1;         // Chord index when cache was built
+cached_prog_chord_1 = -1;        // Cached prog_chords[0] value
+cached_prog_chord_2 = -1;        // Cached prog_chords[1] value
+cached_prog_chord_3 = -1;        // Cached prog_chords[2] value
+cached_prog_chord_4 = -1;        // Cached prog_chords[3] value
+
 // Legacy array for note generation (before scheduling)
 phrase_notes = 860;       // Temporary: raw MIDI notes before timing applied
 
 // Track last endpoint to avoid repeats
 last_endpoint_note = -1;
+
+// Background generation state
+background_gen_active = 0;     // Flag: currently generating next chord's phrases
+background_gen_chord_index = 0; // Which chord we're pre-generating for
+
+// Progression sequencer state
+prog_chord_index = 0;         // Current chord in the progression (0-7)
+prog_beat_counter = 0;        // Beats elapsed in current chord
+prog_last_beat_num = -1;      // Track beat changes (-1 = uninitialized)
+prog_chords = 900;            // Array to store the progression sequence
+prog_current_chord = -1;      // Currently active chord (-1 = uninitialized)
+prog_beats_until_change = 0;  // Beats remaining until next chord change
 
 // ============================================
 // SCALE & CHORD FUNCTIONS
@@ -247,6 +267,35 @@ function get_note_selection_weight(midi_note) local(note_class, weight) (
   weight;
 );
 
+// Validate cache fingerprint against current progression state
+function validate_cache_fingerprint() local(matches) (
+  matches = (
+    cached_chord_index == prog_chord_index &&
+    cached_prog_chord_1 == prog_chords[0] &&
+    cached_prog_chord_2 == prog_chords[1] &&
+    cached_prog_chord_3 == prog_chords[2] &&
+    cached_prog_chord_4 == prog_chords[3]
+  );
+  matches && cached_is_valid;
+);
+
+// Store current fingerprint in cache
+function store_cache_fingerprint() (
+  cached_chord_index = prog_chord_index;
+  cached_prog_chord_1 = prog_chords[0];
+  cached_prog_chord_2 = prog_chords[1];
+  cached_prog_chord_3 = prog_chords[2];
+  cached_prog_chord_4 = prog_chords[3];
+  cached_is_valid = 1;
+);
+
+// Invalidate cache (called on config changes, stop/restart, etc)
+function invalidate_cache() (
+  cached_is_valid = 0;
+  cached_chord_index = -1;
+  background_gen_active = 0;
+);
+
 // Check how recently a note was played (returns 0-1, where 1 = most recent)
 function get_recency_penalty(midi_note) local(i, pos, recency) (
   recency = 0;
@@ -305,46 +354,48 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
   loop(phrase_length,
     note = phrase_notes[i];
 
-    // Calculate inner rest probability for this note
+    // Place this note at current slot (all notes play)
+    phrase_events[slot] = note;
+
+    // Calculate velocity based on melodic direction
+    prev_note >= 0 ? (
+      note_diff = note - prev_note;
+      note_diff > 0 ? (
+        velocity = slider10 + vel_range * 0.6 + rand() * vel_range * 0.2;
+      ) : note_diff < 0 ? (
+        velocity = slider10 + vel_range * 0.3 + rand() * vel_range * 0.2;
+      ) : (
+        velocity = slider10 + vel_range * 0.45 + rand() * vel_range * 0.1;
+      );
+    ) : (
+      velocity = slider10 + rand() * vel_range;
+    );
+    phrase_velocities[slot] = max(1, min(127, floor(velocity)));
+
+    prev_note = note;
+
+    // Calculate rest duration AFTER this note based on its importance
+    // Important notes (root/5th/3rd) get longer rests after them
     rest_weight = get_note_selection_weight(note);
     rest_multiplier = rest_weight / CHORD_ROOT_WEIGHT;
-    rest_emphasis = 0.5 + rest_multiplier * 0.5;
-    inner_rest_prob = max(0, min(1, base_inner_rest * rest_emphasis));
+    rest_emphasis = 0.5 + rest_multiplier * 1.5;  // Root=2.0, Fifth=1.125, Third=0.75, Scale=0.6, Passing=0.525
 
-    // First note always plays, others might rest
-    (i == 0 || rand() >= inner_rest_prob) ? (
-      // Place this note at current slot
-      phrase_events[slot] = note;
-
-      // Calculate velocity based on melodic direction
-      prev_note >= 0 ? (
-        note_diff = note - prev_note;
-        note_diff > 0 ? (
-          velocity = slider10 + vel_range * 0.6 + rand() * vel_range * 0.2;
-        ) : note_diff < 0 ? (
-          velocity = slider10 + vel_range * 0.3 + rand() * vel_range * 0.2;
-        ) : (
-          velocity = slider10 + vel_range * 0.45 + rand() * vel_range * 0.1;
-        );
-      ) : (
-        velocity = slider10 + rand() * vel_range;
-      );
-      phrase_velocities[slot] = max(1, min(127, floor(velocity)));
-
-      prev_note = note;
-
-      // Decide timing for next note
-      (i < phrase_length - 1 && rand() < eighth_prob) ? (
-        // Next note comes as 8th note (next slot)
+    // Decide timing for next note based on note importance and density
+    (i < phrase_length - 1) ? (
+      // Higher rest_emphasis = longer gap after this note
+      rand() < (eighth_prob * (1.0 / rest_emphasis)) ? (
+        // Next note comes as 8th note (next slot) - less likely for important notes
         slot += 1;
       ) : (
         // Next note on quarter boundary (skip to even slot)
         slot += 1;
         (slot % 2 == 1) ? slot += 1;  // Ensure even slot for quarter note
+        
+        // For very important notes (root/fifth), add extra gap at sparse densities
+        (rest_emphasis > 1.5 && density < 0.5 && rand() < (rest_emphasis - 1.0)) ? (
+          slot += 2;  // Add full quarter note of extra space
+        );
       );
-    ) : (
-      // Inner rest - skip this slot (leave as 0), advance to next quarter
-      slot += 2 - (slot % 2);  // Advance to next even slot
     );
 
     i += 1;
@@ -815,6 +866,13 @@ function build_phrase_notes(direction, temp_count)
           final_exploration_idx, current_note_idx, max_resolution_distance,
           exploration_distance) (
 
+  // Adjust phrase length based on beats remaining until chord change
+  // Most phrases should end near the chord boundary, with some allowed to overshoot
+  (slider15 == 1 && rand() < CHORD_BOUNDARY_RESPECT_PROB) ? (
+    // Limit phrase to fit within remaining chord time (with small buffer)
+    phrase_length = min(phrase_length, max(2, prog_beats_until_change - 1));
+  );
+
   // Calculate phase lengths
   exploration_notes = floor(phrase_length * EXPLORATION_RATIO);
   exploration_notes = max(1, exploration_notes);  // At least 1 exploration note
@@ -868,7 +926,59 @@ function build_phrase_notes(direction, temp_count)
   1;  // Return success
 );
 
-// (moved above to ensure definition precedes usage)
+// Build next chord's phrases in background and store in cache
+// This is called during playback of current phrase to pre-generate next chord's phrases
+function build_next_chord_phrases_background() local(next_chord_idx, prev_slider3, success, max_phrase, min_phrase, random_length, direction, temp_count, slot) (
+  // Calculate which chord comes next
+  next_chord_idx = (prog_chord_index + 1) % slider16;
+  
+  // Store current chord selection
+  prev_slider3 = slider3;
+  
+  // Temporarily switch to next chord to generate its phrases
+  slider3 = prog_chords[next_chord_idx];
+  build_chord_tones();
+  
+  // Build phrase with current settings but for next chord
+  phrase_build_counter += 1;
+  init_phrase_boundaries();
+  
+  pick_and_validate_endpoint() ? (
+    max_phrase = min(slider7, slider5 * 7);
+    min_phrase = min(slider6, max_phrase);
+    random_length = rand();
+    phrase_length = min_phrase + floor(random_length * (max_phrase - min_phrase + 1));
+    
+    direction = determine_phrase_direction();
+    phrase_direction = direction;
+    
+    temp_count = build_temp_scale_array();
+    
+    validate_scale_array(temp_count) ? (
+      success = build_phrase_notes(direction, temp_count);
+      
+      success ? (
+        // Copy scheduled events to cache
+        slot = 0;
+        loop(64,
+          cached_phrase_events[slot] = phrase_events[slot];
+          cached_phrase_velocities[slot] = phrase_velocities[slot];
+          slot += 1;
+        );
+        cached_phrase_slot_count = phrase_slot_count;
+        
+        // Store fingerprint so we know this cache is valid for the next chord
+        store_cache_fingerprint();
+      );
+    );
+  );
+  
+  // Restore original chord
+  slider3 = prev_slider3;
+  build_chord_tones();
+  
+  background_gen_active = 0;
+);
 
 // Build entire phrase by walking scale from calculated start to pre-selected end
 function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, temp_count, success) (
@@ -945,6 +1055,80 @@ build_scale();
 build_chord_tones();
 
 @block
+// ============================================
+// PROGRESSION SEQUENCER
+// ============================================
+(slider15 == 1) ? (  // Auto-Loop mode enabled
+  // Calculate current beat number from beat_position
+  beat_num = floor(beat_position);
+  
+  // Initialize progression array on first run
+  prog_last_beat_num < 0 ? (
+    prog_beat_counter = 0;
+    prog_chord_index = 0;
+    prog_last_beat_num = beat_num;
+    prog_current_chord = -1;  // Force rebuild on first beat
+    
+    // Rebuild progression array from sliders
+    prog_chords[0] = slider17;
+    prog_chords[1] = slider18;
+    prog_chords[2] = slider19;
+    prog_chords[3] = slider20;
+    
+    // Invalidate cache on startup
+    invalidate_cache();
+  );
+  
+  // Detect beat changes (beat_num increments on each quarter note)
+  beat_num != prog_last_beat_num ? (
+    prog_last_beat_num = beat_num;
+    prog_beat_counter += 1;
+    
+    // Time to advance to next chord? (slider21 is in measures, multiply by 4 for beats)
+    prog_beat_counter >= (slider21 * 4) ? (
+      prog_beat_counter = 0;
+      prog_chord_index = (prog_chord_index + 1) % slider16;
+      
+      // Chord changed - check cache validity
+      validate_cache_fingerprint() ? (
+        // Cache is valid for this new chord - use it immediately
+        phrase_events = cached_phrase_events;
+        phrase_velocities = cached_phrase_velocities;
+        phrase_slot_count = cached_phrase_slot_count;
+        phrase_active = 1;
+        phrase_slot_index = 0;
+        phrase_start_beat = -1;
+        between_phrase_rest = 0;
+      ) : (
+        // Cache invalid - will regenerate on-demand in main generation loop
+        between_phrase_rest = 0;
+      );
+    );
+    
+    // Update current chord from progression
+    new_chord = prog_chords[prog_chord_index];
+    
+    // If chord changed, rebuild chord tones
+    new_chord != prog_current_chord ? (
+      prog_current_chord = new_chord;
+      // Manually set slider3 and rebuild
+      slider3 = prog_current_chord;
+      sliderchange(slider3);
+      build_chord_tones();
+    );
+  );
+  
+  // Calculate beats remaining until chord change
+  prog_beats_until_change = (slider21 * 4) - prog_beat_counter;
+) : (
+  // Reset progression state when mode is Off
+  prog_last_beat_num < 0 ? (
+    prog_last_beat_num = 0;
+  );
+  prog_beats_until_change = 999;
+  invalidate_cache();
+);
+
 // Pass through incoming MIDI (always, regardless of generation state)
 while(midirecv(offset, msg1, msg2, msg3)) (
   midisend(offset, msg1, msg2, msg3);
@@ -984,6 +1168,13 @@ while(midirecv(offset, msg1, msg2, msg3)) (
           send_note_off();
           send_note_on(note, velocity);
         );
+        
+        // Background generation: when we're near end of phrase, pre-generate next chord
+        // This ensures seamless transition when chord changes
+        (slider15 == 1 && !background_gen_active && phrase_slot_index > (phrase_slot_count * 0.7)) ? (
+          background_gen_active = 1;
+          build_next_chord_phrases_background();
+        );
       ) : (
         // Phrase complete - start rest period
         send_note_off();
@@ -1004,5 +1195,10 @@ while(midirecv(offset, msg1, msg2, msg3)) (
         );
       );
     );
+  );
+) : (
+  // Generation disabled or stopped - invalidate cache
+  play_position == 0 ? (
+    invalidate_cache();
   );
 );
