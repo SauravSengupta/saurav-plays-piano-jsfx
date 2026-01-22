@@ -105,7 +105,7 @@ A basic generative phrase engine that tries to create melodic phrases based on m
 **System**
 
 - **Enable Generation** (Off/On): Toggle phrase generation on/off
-- **MIDI Channel** (0-127): Output channel (0 = all channels)
+- **MIDI Channel** (1-16): Output channel for generated notes (pass-through MIDI keeps its original channel)
 
 #### How It Works
 
@@ -127,11 +127,17 @@ A basic generative phrase engine that tries to create melodic phrases based on m
 #### Technical Notes
 
 - Generates MIDI note-on events with random velocities between min/max
-- Note-offs are handled by the Reaper MIDI engine
+- Sends note-offs itself before triggering the next note to avoid hangs
 - All other MIDI data passes through unchanged
 - Phrase length and note selection are randomized for variation
 - Performance is tuned for real-time generation without latency
 - Sometimes notes slightly outside the octave range might be selected to try and keep the phrase melodic
+
+##### Timing Model
+- Notes are scheduled on an 8th-note grid; phrases advance by 8ths and align back to quarter-note boundaries when needed
+- "8th Note Amount" increases the odds of adjacent 8th-note steps versus waiting for the next quarter
+- "Density" influences inner rests within phrases and the rest length after a phrase completes
+- After a phrase finishes, the plugin inserts a short rest (in quarter notes) before starting the next phrase
 
 ---
 
