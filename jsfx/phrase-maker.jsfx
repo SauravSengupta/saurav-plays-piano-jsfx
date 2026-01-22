@@ -67,13 +67,11 @@ MAX_CONSECUTIVE_REPEATS = 2;  // Maximum times a note can repeat consecutively
 MAX_CONSECUTIVE_SKIPS = 1;    // Maximum consecutive large intervals (>=2 scale steps) - set to 1 to prevent arpeggio patterns
 
 // Rest behavior constants (controls between-phrase rest lengths)
-// These are in 16th notes (beat_pos increments by 0.25 per 16th note)
-REST_MAX_BASE = 8;      // Base max rest at low density
-REST_MAX_SLOPE = 6;     // How much max rest decreases as density increases
-REST_MIN_BASE = 4;      // Base min rest at low density
-REST_MIN_SLOPE = 3;     // How much min rest decreases as density increases
-REST_MIN_FLOOR = 1;     // Absolute minimum rest (was 12, way too high!)
-REST_MAX_CEILING = 16;  // Maximum allowed rest
+// These are in quarter notes (decremented once per beat_num change)
+REST_MAX_BASE = 4;      // Base max rest at low density
+REST_MIN_BASE = 2;      // Base min rest at low density
+REST_MIN_FLOOR = 1;     // Absolute minimum rest
+REST_MAX_CEILING = 8;   // Maximum allowed rest
 
 // ============================================
 // MEMORY LAYOUT - SCALE DEFINITIONS
@@ -134,51 +132,28 @@ current_chord_tones = 210; // up to 4 notes (root, 3rd, 5th, 7th)
 available_notes = 220;    // all available MIDI notes with weights
 note_weights = 300;       // parallel array of weights
 
-last_note = -1;
-current_note = -1;
+// Playback state
 note_playing = 0;
-last_beat_pos = -1;
-last_beat_num = -1;
-samples_since_note = 0;
-phrase_complete_waiting_beat = 0;  // Flag: phrase done, waiting for beat boundary to start rest
-next_note_is_eighth = 0;           // Flag: next note should play at half-beat (8th note timing)
-notes_sent_this_beat = 0;          // Prevent duplicate notes on same beat during context switches
-last_play_position_checked = -999; // Track play position for context switch detection
+last_eighth = -1;  // Last 8th-note boundary processed
 
 // Phrase generation state
 phrase_active = 0;              // Are we currently in a phrase?
-phrase_length = 0;              // Notes to generate in current phrase
-phrase_note_count = 0;          // Notes generated so far
-phrase_rest_count = 0;          // Rest beats between phrases
-between_phrase_rest = 0;        // Beats of rest needed between phrases (start at 0 so first phrase builds immediately)
-between_phrase_rest_max = 0;    // Maximum rest counter to force phrase generation
-phrase_start_note = -1;         // Starting note of phrase
+phrase_length = 0;              // Notes to generate in current phrase (for build phase)
+between_phrase_rest = 0;        // Quarter notes of rest before next phrase
 phrase_end_note = -1;           // Ending note of phrase (planned)
 phrase_direction = 0;           // -1 = down, 0 = neutral, 1 = up (for melodic momentum)
-direction_steps = 0;            // How many notes we've moved in current direction
-direction_change_countdown = 0; // Force direction change after N notes
 
-// Prevent passing tone repeats within phrase
-last_was_passing = 0;
+// Pre-calculated phrase data (step sequencer model)
+// Each index = one 8th note slot. 0 = rest/silence at that slot.
+phrase_events = 700;      // MIDI note at each 8th-note slot (0 = rest)
+phrase_velocities = 780;  // Velocity for each slot
+phrase_slot_count = 0;    // Total 8th-note slots in this phrase
+phrase_slot_index = 0;    // Current playback position
+phrase_rest_after = 0;    // Quarter notes of rest after this phrase
+phrase_start_beat = 0;    // Beat position when phrase started
 
-// Pre-calculated phrase notes
-phrase_notes = 700;  // Array of MIDI notes for this phrase
-
-// Timing info for display (recorded during playback)
-// 0 = quarter note, 1 = 8th note (plays sooner), 2 = rest before (plays later)
-phrase_timing = 750;  // Array parallel to phrase_notes
-
-// Flag to allow phrase to play immediately after being built (skip rest check on same tick)
-phrase_just_built = 0;
-
-// Flag to skip rest decrement on the same tick rest was started
-rest_just_started = 0;
-
-// Convert octave slider (0-5 = C1-C6) to MIDI base note
-// C1 = MIDI 24, C2 = 36, C3 = 48, C4 = 60, C5 = 72, C6 = 84
-function get_base_note() (
-  (slider4 + 1) * 12 + 12;  // slider4=0 -> 24 (C1), slider4=3 -> 60 (C4)
-);
+// Legacy array for note generation (before scheduling)
+phrase_notes = 860;       // Temporary: raw MIDI notes before timing applied
 
 // Track last endpoint to avoid repeats
 last_endpoint_note = -1;
@@ -292,6 +267,107 @@ function get_recency_penalty(midi_note) local(i, pos, recency) (
 function add_to_history(midi_note) (
   note_history[note_history_idx] = midi_note;
   note_history_idx = (note_history_idx + 1) % note_history_size;
+);
+
+// ============================================
+// PHRASE SCHEDULING (convert notes to timed events)
+// ============================================
+
+// Schedule phrase_notes into phrase_events timeline
+// Applies timing (8th notes), inner rests, and calculates velocities
+function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
+    density, eighth_prob, inner_rest_prob, rest_scale, base_inner_rest,
+    rest_weight, rest_multiplier, rest_emphasis, velocity, vel_range,
+    sparse_boost, min_rest, max_rest) (
+
+  // Clear the events array
+  slot = 0;
+  loop(64,
+    phrase_events[slot] = 0;
+    phrase_velocities[slot] = 0;
+    slot += 1;
+  );
+
+  // Get parameters
+  density = max(0, min(1, slider9));
+  eighth_prob = slider13;
+  vel_range = slider11 - slider10;
+
+  // Calculate inner rest probability (same formula as before)
+  rest_scale = 1 - density;
+  base_inner_rest = INNER_REST_BASE * rest_scale * sqrt(rest_scale) * 1.6;
+  base_inner_rest = min(1, base_inner_rest);
+
+  // Schedule each note
+  slot = 0;
+  prev_note = -1;
+  i = 0;
+  loop(phrase_length,
+    note = phrase_notes[i];
+
+    // Calculate inner rest probability for this note
+    rest_weight = get_note_selection_weight(note);
+    rest_multiplier = rest_weight / CHORD_ROOT_WEIGHT;
+    rest_emphasis = 0.5 + rest_multiplier * 0.5;
+    inner_rest_prob = max(0, min(1, base_inner_rest * rest_emphasis));
+
+    // First note always plays, others might rest
+    (i == 0 || rand() >= inner_rest_prob) ? (
+      // Place this note at current slot
+      phrase_events[slot] = note;
+
+      // Calculate velocity based on melodic direction
+      prev_note >= 0 ? (
+        note_diff = note - prev_note;
+        note_diff > 0 ? (
+          velocity = slider10 + vel_range * 0.6 + rand() * vel_range * 0.2;
+        ) : note_diff < 0 ? (
+          velocity = slider10 + vel_range * 0.3 + rand() * vel_range * 0.2;
+        ) : (
+          velocity = slider10 + vel_range * 0.45 + rand() * vel_range * 0.1;
+        );
+      ) : (
+        velocity = slider10 + rand() * vel_range;
+      );
+      phrase_velocities[slot] = max(1, min(127, floor(velocity)));
+
+      prev_note = note;
+
+      // Decide timing for next note
+      (i < phrase_length - 1 && rand() < eighth_prob) ? (
+        // Next note comes as 8th note (next slot)
+        slot += 1;
+      ) : (
+        // Next note on quarter boundary (skip to even slot)
+        slot += 1;
+        (slot % 2 == 1) ? slot += 1;  // Ensure even slot for quarter note
+      );
+    ) : (
+      // Inner rest - skip this slot (leave as 0), advance to next quarter
+      slot += 2 - (slot % 2);  // Advance to next even slot
+    );
+
+    i += 1;
+  );
+
+  // Record total slots used
+  phrase_slot_count = slot;
+
+  // Calculate rest after this phrase (in quarter notes)
+  rest_scale = 1 - density;
+  sparse_boost = 1 + rest_scale * 1.5;
+  min_rest = ceil(REST_MIN_BASE * sparse_boost);
+  max_rest = ceil(REST_MAX_BASE * sparse_boost);
+  min_rest = max(REST_MIN_FLOOR, min_rest);
+  max_rest = min(REST_MAX_CEILING, max_rest);
+  max_rest = max(min_rest, max_rest);
+  phrase_rest_after = min_rest + floor(rand() * (max_rest - min_rest + 1));
+);
+
+// Convert octave slider (0-5 = C1-C6) to MIDI base note
+// C1 = MIDI 24, C2 = 36, C3 = 48, C4 = 60, C5 = 72, C6 = 84
+function get_base_note() (
+  (slider4 + 1) * 12 + 12;  // slider4=0 -> 24 (C1), slider4=3 -> 60 (C4)
 );
 
 // ============================================
@@ -789,10 +865,10 @@ function build_phrase_notes(direction, temp_count)
 
   build_resolution_phase(current_note_idx, end_idx, exploration_notes, resolution_notes, temp_count);
 
-  // Mark success
-  phrase_note_count = 0;
   1;  // Return success
 );
+
+// (moved above to ensure definition precedes usage)
 
 // Build entire phrase by walking scale from calculated start to pre-selected end
 function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, temp_count, success) (
@@ -825,12 +901,12 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
       // Phase 1 (exploration) + Phase 2 (resolution to endpoint)
       success = build_phrase_notes(direction, temp_count);
 
-      // Step 8: Finalize
+      // Step 8: Schedule events and finalize
       success ? (
+        schedule_phrase_events();
         phrase_active = 1;
-        phrase_note_count = 0;
-        last_note = -1;
-        phrase_just_built = 1;  // Allow immediate play on this tick
+        phrase_slot_index = 0;
+        phrase_start_beat = -1;  // Will be set on first playback tick
       ) : (
         // Build failed
         phrase_active = 0;
@@ -869,192 +945,64 @@ build_scale();
 build_chord_tones();
 
 @block
-// Detect context switch: large jump in play_position or transition to/from zero
-// When REAPER loses focus or pauses/resumes, play_position can jump dramatically
-position_jump = abs(play_position - last_play_position_checked);
-is_context_switch = (position_jump > 100 || (last_play_position_checked > 0 && play_position == 0));
-
-is_context_switch ? (
-  // Context switch detected - clear all note and phrase state to prevent stray notes
-  send_note_off();
-  notes_sent_this_beat = 0;
-  next_note_is_eighth = 0;
-  phrase_active = 0;  // Stop any phrase playback
-  phrase_complete_waiting_beat = 0;  // Clear waiting state
-  between_phrase_rest = 0;  // Clear rest timing
-  rest_just_started = 0;
-  phrase_just_built = 0;
-  last_beat_num = -1;  // Force beat re-sync
-  last_beat_pos = -1;  // Force beat re-sync
-);
-
-last_play_position_checked = play_position;
-
-(slider12 == 1 && play_position > 0) ? ( // Generation enabled (skip if stopped)
-  // Get current beat position (quarter notes)
-  beat_num = floor(beat_position);
-  beat_pos = floor(beat_position * 4) / 4; // Quantize to 16th notes
-  
-  // Build first phrase immediately if none exists and no rest pending
-  (!phrase_active && between_phrase_rest == 0 && phrase_length == 0) ? (
-    build_phrase_from_endpoint();
-  );
-  
-  // Check if we've crossed a beat boundary (quarter note)
-  beat_num != last_beat_num ? (
-    last_beat_num = beat_num;
-    
-    // If phrase was complete and waiting for beat boundary, now start rest
-    phrase_complete_waiting_beat ? (
-      phrase_complete_waiting_beat = 0;
-      // Rest between phrases controlled by density
-      density = max(0, min(1, slider9));
-      // Lower density -> much longer rests; higher density -> shorter rests
-      rest_scale = 1 - density;            // 1.0 at sparse, 0.0 at busy
-      sparse_boost = 1 + rest_scale * 1.5; // 2.5x at fully sparse, 1x at fully busy
-      min_rest = ceil(REST_MIN_BASE * sparse_boost);
-      max_rest = ceil(REST_MAX_BASE * sparse_boost);
-      // Clamp bounds
-      min_rest = max(REST_MIN_FLOOR, min_rest);
-      max_rest = min(REST_MAX_CEILING, max_rest);
-      max_rest = max(min_rest, max_rest);
-      between_phrase_rest = min_rest + floor(rand() * (max_rest - min_rest + 1));
-      rest_just_started = 1;  // Prevent immediate decrement on same tick
-      send_note_off();
-    );
-  );
-
-  beat_pos != last_beat_pos ? (
-    last_beat_pos = beat_pos;
-    notes_sent_this_beat = 0;  // Reset for new beat to allow next note
-
-    // Safety: if a rest is somehow pending while a phrase is still marked active,
-    // cancel the rest instead of treating it as a cut-short condition.
-    (phrase_active && between_phrase_rest > 0) ? (
-      between_phrase_rest = 0;
-      between_phrase_rest_max = 0;
-      rest_just_started = 0;
-    );
-
-    // Handle between-phrase rest (skip if phrase was just built or rest just started)
-    (between_phrase_rest > 0 && !phrase_just_built && !rest_just_started) ? (
-      between_phrase_rest_max += 1;
-      between_phrase_rest -= 1;
-      between_phrase_rest == 0 ? (
-        // Rest complete, build new phrase
-        build_phrase_from_endpoint();
-        between_phrase_rest_max = 0;
-        // Ensure rest stays at 0 so phrase can play on next tick
-        between_phrase_rest = 0;
-      );
-      // Safety: if rest has gone on too long (>MAX_REST beats), force generation
-      (between_phrase_rest_max > MAX_REST) ? (
-        between_phrase_rest = 0;
-        build_phrase_from_endpoint();
-        between_phrase_rest_max = 0;
-      );
-      send_note_off();
-    ) : phrase_active ? (
-      // We're in a phrase - play pre-calculated notes
-      phrase_note_count < phrase_length ? (
-        // Determine if we should play a note on this beat position
-        // Quarter notes: play when beat_pos is a whole number (1.0, 2.0, 3.0, etc.)
-        // 8th notes: play at half-beats (1.5, 2.5, 3.5, etc.)
-        should_play_now = 0;
-        
-        // Check if we're on a whole beat or half-beat
-        beat_pos_mod = beat_pos - floor(beat_pos);  // Get fractional part
-        is_whole_beat = (beat_pos_mod < 0.01);      // Whole beat (1.0, 2.0, etc.)
-        is_half_beat = (abs(beat_pos_mod - 0.5) < 0.01);  // Half beat (1.5, 2.5, etc.)
-        
-        next_note_is_eighth ? (
-          // This note is flagged as 8th note - play at half-beat
-          is_half_beat ? (
-            should_play_now = 1;
-            next_note_is_eighth = 0;  // Clear flag after playing
-          );
-        ) : (
-          // Normal quarter note timing - play at whole beats
-          is_whole_beat ? (
-            should_play_now = 1;
-          );
-        );
-
-        should_play_now ? (
-          new_note = phrase_notes[phrase_note_count];
-
-          // Inner rest probability: density-scaled and weighted by note role
-          density = max(0, min(1, slider9));
-          rest_scale = 1 - density;
-          base_inner_rest = INNER_REST_BASE * rest_scale * sqrt(rest_scale) * 1.6;
-          base_inner_rest = min(1, base_inner_rest);
-          rest_weight = get_note_selection_weight(new_note);
-          rest_multiplier = rest_weight / CHORD_ROOT_WEIGHT;
-          rest_emphasis = 0.5 + rest_multiplier * 0.5;
-          inner_rest_prob = max(0, min(1, base_inner_rest * rest_emphasis));
-
-          (phrase_note_count == 0 || rand() >= inner_rest_prob) ? (
-            // Prevent duplicate note-on on same beat (protection against context switches)
-            notes_sent_this_beat == 0 ? (
-              send_note_off();
-
-              // Record timing for display: was this note played as 8th note?
-              // (next_note_is_eighth was set by the previous note)
-              phrase_timing[phrase_note_count] = is_half_beat ? 1 : 0;  // 1 = 8th note
-
-              // Calculate velocity based on melodic direction
-              velocity = slider10 + (slider11 - slider10) / 2;
-
-              last_note >= 0 ? (
-                note_diff = new_note - last_note;
-                note_diff > 0 ? (
-                  velocity = slider10 + (slider11 - slider10) * 0.6 + rand() * (slider11 - slider10) * 0.2;
-                ) : note_diff < 0 ? (
-                  velocity = slider10 + (slider11 - slider10) * 0.3 + rand() * (slider11 - slider10) * 0.2;
-                ) : (
-                  velocity = slider10 + (slider11 - slider10) * 0.45 + rand() * (slider11 - slider10) * 0.1;
-                );
-              ) : (
-                velocity = slider10 + rand() * (slider11 - slider10);
-              );
-
-              velocity = max(1, min(127, floor(velocity)));
-
-              send_note_on(new_note, velocity);
-              last_note = new_note;
-              phrase_note_count += 1;
-              notes_sent_this_beat = 1;  // Mark that we sent a note this beat
-
-              // Randomly flag next note as 8th note (plays at next half-beat)
-              (phrase_note_count < phrase_length && rand() < slider13) ? (
-                next_note_is_eighth = 1;
-              );
-            );
-          ) : (
-            // Inner rest - mark this note as having a rest before it
-            phrase_timing[phrase_note_count] = 2;  // 2 = rest (skipped this beat)
-          );
-        );
-      ) : (
-        // Phrase complete - wait for beat boundary before transitioning to rest
-        phrase_active = 0;
-        phrase_direction = 0;
-        phrase_complete_waiting_beat = 1;
-        // send_note_off();
-      );
-    ) : !phrase_complete_waiting_beat ? (
-      // Not in phrase and no rest pending - start a phrase (always, not randomly)
-      build_phrase_from_endpoint();
-    );
-
-    // Clear phrase_just_built flag at end of beat_pos (after first note opportunity)
-    phrase_just_built = 0;
-    // Clear the rest_just_started flag at end of tick processing
-    rest_just_started = 0;
-  );
-);
-
-// Pass through incoming MIDI
+// Pass through incoming MIDI (always, regardless of generation state)
 while(midirecv(offset, msg1, msg2, msg3)) (
   midisend(offset, msg1, msg2, msg3);
+);
+
+(slider12 == 1 && play_position > 0) ? ( // Generation enabled (skip if stopped)
+  // Calculate current 8th-note slot from beat position
+  current_eighth = floor(beat_position * 2);
+
+  // Build first phrase if needed
+  (!phrase_active && between_phrase_rest == 0 && phrase_slot_count == 0) ? (
+    build_phrase_from_endpoint();
+  );
+
+  // New 8th note boundary?
+  current_eighth != last_eighth ? (
+    last_eighth = current_eighth;
+
+    phrase_active ? (
+      // Set start beat on first tick of phrase
+      phrase_start_beat < 0 ? (
+        phrase_start_beat = beat_position;
+        phrase_slot_index = 0;
+      );
+
+      // Calculate which slot we should be at
+      phrase_slot_index = floor((beat_position - phrase_start_beat) * 2);
+
+      // Still within phrase?
+      phrase_slot_index < phrase_slot_count ? (
+        // Get note and velocity for this slot
+        note = phrase_events[phrase_slot_index];
+        velocity = phrase_velocities[phrase_slot_index];
+
+        // Play if there's a note (0 = rest)
+        note > 0 ? (
+          send_note_off();
+          send_note_on(note, velocity);
+        );
+      ) : (
+        // Phrase complete - start rest period
+        send_note_off();
+        phrase_active = 0;
+        between_phrase_rest = phrase_rest_after;
+      );
+    ) : (
+      // Not in phrase - handle rest countdown (on quarter note boundaries)
+      (current_eighth % 2 == 0) ? (  // Quarter note = even 8th
+        between_phrase_rest > 0 ? (
+          between_phrase_rest -= 1;
+          between_phrase_rest == 0 ? (
+            build_phrase_from_endpoint();
+          );
+        ) : (
+          // No rest pending, build new phrase
+          build_phrase_from_endpoint();
+        );
+      );
+    );
+  );
 );
