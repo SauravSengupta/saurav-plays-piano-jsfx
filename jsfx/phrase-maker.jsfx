@@ -19,8 +19,8 @@ slider4:3<0,5,1{C1,C2,C3,C4,C5,C6}>Base Octave
 slider5:2<1,4,1>Octave Range
 
 // === PHRASE SETTINGS ===
-slider6:3<2,8,1>Min Phrase Length
-slider7:15<3,20,1>Max Phrase Length
+slider6:6<2,12,1>Min Phrase Length
+slider7:16<3,24,1>Max Phrase Length
 // slider8:1<0,1,{Off,On}>Use Passing Tones
 slider9:0.75<0,1,0.05>Density (sparse to busy)
 slider13:0.5<0,1,0.05>8th Note Amount
@@ -30,13 +30,13 @@ slider10:40<1,127,1>Min Velocity
 slider11:100<1,127,1>Max Velocity
 
 // === PROGRESSION SEQUENCER ===
-slider15:0<0,1,{Off,Auto-Loop}>Progression Mode
+slider15:1<0,1,{Off,Auto-Loop}>Progression Mode
 slider16:4<1,8,1>Loop Length (# of chords)
 slider17:0<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 1
 slider18:4<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 2
 slider19:5<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 3
 slider20:3<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 4
-slider21:2<1,8,1>Measures Per Chord
+slider21:4<1,8,1>Measures Per Chord
 
 // === SYSTEM ===
 slider12:1<0,1,{Off,On}>Enable Generation
@@ -75,6 +75,9 @@ APPROACH_FROM_BELOW_PROB = 0.6;    // Probability of approaching final note from
 MAX_CONSECUTIVE_REPEATS = 2;       // Maximum times a note can repeat consecutively
 MAX_CONSECUTIVE_SKIPS = 1;         // Maximum consecutive large intervals (>=2 scale steps) - set to 1 to prevent arpeggio patterns
 CHORD_BOUNDARY_RESPECT_PROB = 0.8; // Probability of ending phrase near chord boundary (0.8 = 80% respect, 20% overshoot)
+DOWNBEAT_END_BIAS = 0.65;          // Probability to snap phrase end to nearest measure downbeat when close
+DOWNBEAT_SNAP_WINDOW = 1.0;        // Max distance (in beats) from a downbeat to allow snapping
+DOWNBEAT_REST_BONUS = 2;           // Extra quarter notes of rest when phrase ends on downbeat
 
 // Rest behavior constants (controls between-phrase rest lengths)
 // These are in quarter notes (decremented once per beat_num change)
@@ -216,6 +219,41 @@ function build_chord_tones() local(degree, quality, root_idx, third_idx, fifth_i
 
   // Optional 7th (6 scale steps up)
   current_chord_tones[3] = current_scale[(degree + 6) % 7];
+);
+
+// Render a chord name (Roman numeral) for display
+function gfx_print_chord_name(chord_idx) (
+  chord_idx < 0 ? (
+    gfx_printf("--");
+  ) : (
+    chord_idx == 0 ? gfx_printf("I") :
+    chord_idx == 1 ? gfx_printf("ii") :
+    chord_idx == 2 ? gfx_printf("iii") :
+    chord_idx == 3 ? gfx_printf("IV") :
+    chord_idx == 4 ? gfx_printf("V") :
+    chord_idx == 5 ? gfx_printf("vi") : gfx_printf("--");
+  );
+);
+
+// Render a MIDI note name with octave (C-1 = 0). Uses short names for HUD.
+function gfx_print_note_name(midi_note) local(note_class, octave) (
+  midi_note <= 0 ? (
+    gfx_printf("--");
+  ) : (
+    note_class = midi_note % 12;
+    octave = floor(midi_note / 12) - 1;  // MIDI 60 -> octave 4
+    note_class == 0  ? gfx_printf("C%d", octave) :
+    note_class == 1  ? gfx_printf("C#%d", octave) :
+    note_class == 2  ? gfx_printf("D%d", octave) :
+    note_class == 3  ? gfx_printf("D#%d", octave) :
+    note_class == 4  ? gfx_printf("E%d", octave) :
+    note_class == 5  ? gfx_printf("F%d", octave) :
+    note_class == 6  ? gfx_printf("F#%d", octave) :
+    note_class == 7  ? gfx_printf("G%d", octave) :
+    note_class == 8  ? gfx_printf("G#%d", octave) :
+    note_class == 9  ? gfx_printf("A%d", octave) :
+    note_class == 10 ? gfx_printf("A#%d", octave) : gfx_printf("B%d", octave);
+  );
 );
 
 function is_chord_tone(note_class) local(i, found) (
@@ -413,6 +451,52 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
   max_rest = min(REST_MAX_CEILING, max_rest);
   max_rest = max(min_rest, max_rest);
   phrase_rest_after = min_rest + floor(rand() * (max_rest - min_rest + 1));
+);
+
+// Nudge the final note toward the nearest measure downbeat when close (bias, not absolute)
+function bias_phrase_end_to_downbeat() local(i, last_slot, slot_idx, note, vel,
+    chord_pos_beats, phrase_end_rel_beats, target_abs_beats, nearest_downbeat,
+    diff_beats, desired_rel_beats, desired_slot) (
+
+  (slider15 == 1) ? (
+    // Find last occupied slot (highest index with a note)
+    last_slot = -1;
+    i = 0;
+    loop(64,
+      slot_idx = 63 - i;
+      phrase_events[slot_idx] > 0 ? last_slot = (last_slot < 0 ? slot_idx : last_slot);
+      i += 1;
+    );
+
+    (last_slot >= 0) ? (
+      // Use current chord position for live phrases; start-of-chord for background build
+      chord_pos_beats = background_gen_active ? 0 : prog_beat_counter;
+      phrase_end_rel_beats = last_slot * 0.5;  // slots are 8ths
+      target_abs_beats = chord_pos_beats + phrase_end_rel_beats;
+
+      // Nearest measure downbeat (every 4 beats)
+      nearest_downbeat = floor((target_abs_beats / 4) + 0.5) * 4;
+      diff_beats = abs(target_abs_beats - nearest_downbeat);
+
+      (diff_beats <= DOWNBEAT_SNAP_WINDOW && rand() < DOWNBEAT_END_BIAS) ? (
+        desired_rel_beats = nearest_downbeat - chord_pos_beats;
+        desired_slot = floor(desired_rel_beats * 2 + 0.5);
+        desired_slot = max(0, min(63, desired_slot));
+
+        (desired_slot != last_slot) ? (
+          note = phrase_events[last_slot];
+          vel = phrase_velocities[last_slot];
+          phrase_events[last_slot] = 0;
+          phrase_velocities[last_slot] = 0;
+          phrase_events[desired_slot] = note;
+          phrase_velocities[desired_slot] = vel;
+          phrase_slot_count = max(phrase_slot_count, desired_slot + 1);
+          // Increase rest after phrase to emphasize the downbeat landing
+          phrase_rest_after += DOWNBEAT_REST_BONUS;
+        );
+      );
+    );
+  );
 );
 
 // Convert octave slider (0-5 = C1-C6) to MIDI base note
@@ -958,6 +1042,8 @@ function build_next_chord_phrases_background() local(next_chord_idx, prev_slider
       success = build_phrase_notes(direction, temp_count);
       
       success ? (
+        schedule_phrase_events();
+        bias_phrase_end_to_downbeat();
         // Copy scheduled events to cache
         slot = 0;
         loop(64,
@@ -966,7 +1052,6 @@ function build_next_chord_phrases_background() local(next_chord_idx, prev_slider
           slot += 1;
         );
         cached_phrase_slot_count = phrase_slot_count;
-        
         // Store fingerprint so we know this cache is valid for the next chord
         store_cache_fingerprint();
       );
@@ -1014,6 +1099,7 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
       // Step 8: Schedule events and finalize
       success ? (
         schedule_phrase_events();
+        bias_phrase_end_to_downbeat();
         phrase_active = 1;
         phrase_slot_index = 0;
         phrase_start_beat = -1;  // Will be set on first playback tick
@@ -1202,3 +1288,36 @@ while(midirecv(offset, msg1, msg2, msg3)) (
     invalidate_cache();
   );
 );
+
+@gfx
+// Simple HUD: current/next chord, phrase status, current note, upcoming slots
+gfx_a = 1;
+gfx_set(0, 0, 0); gfx_rect(0, 0, gfx_w, gfx_h); // clear black
+gfx_set(1, 1, 1); // white text
+gfx_x = 10; gfx_y = 10;
+
+// Chords
+display_current_chord = (slider15 == 1) ? prog_current_chord : slider3;
+display_next_chord = (slider15 == 1) ? prog_chords[(prog_chord_index + 1) % slider16] : -1;
+gfx_printf("Current: "); gfx_print_chord_name(display_current_chord); gfx_printf("\n");
+gfx_printf("Next:    "); (slider15 == 1) ? gfx_print_chord_name(display_next_chord) : gfx_printf("--"); gfx_printf("\n\n");
+
+// Phrase + note
+gfx_printf("Phrase: "); phrase_active ? gfx_printf("playing") : gfx_printf("idle"); gfx_printf("\n");
+gfx_printf("Note:   "); note_playing > 0 ? gfx_print_note_name(note_playing) : gfx_printf("--"); gfx_printf("\n");
+
+// Upcoming slots (next 8)
+gfx_printf("Slots:  ");
+(phrase_slot_count > 0) ? (
+  i = 0;
+  loop(8,
+    slot_idx = phrase_slot_index + i;
+    (slot_idx < phrase_slot_count) ? (
+      note = phrase_events[slot_idx];
+      note > 0 ? gfx_print_note_name(note) : gfx_printf("..");
+    ) : gfx_printf("  ");
+    gfx_printf(" ");
+    i += 1;
+  );
+) : gfx_printf("(none)");
+gfx_printf("\n");
