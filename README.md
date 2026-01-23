@@ -66,12 +66,13 @@ A simple tool that probabilistically drops incoming MIDI note-on events. Think o
 
 **[phrase-maker.jsfx](jsfx/phrase-maker.jsfx)**
 
-A generative phrase engine that tries to create melodic phrases based on simple musical theory. It understands some scales and chords, and tries to generate natural-sounding melodies. If music theory isn't your strong suit, you may find this helpful to create something that can serve as a starting point that you can then build on. I mostly use this to record a long track, listen to the generated phrases, and then pick some to work on further.
+A generative phrase engine that tries to create melodic phrases based on simple musical theory. It understands scales and chords, and generates natural-sounding melodies that follow a chord progression. It features a **real-time piano roll visualization** and a built-in **chord progression sequencer**.
+
+If music theory isn't your strong suit, you may find this helpful to create something that can serve as a starting point that you can then build on. I mostly use this to record a long track, listen to the generated phrases, and then pick some to work on further.
 
 #### Limitations
 
 - It still mostly sounds like computer generated music
-- The phrases don't quite resolve to the chords. For example, in the key of C, I don't hear much difference when the chord is I (C) vs. IV (F)
 
 #### Parameters
 
@@ -101,6 +102,13 @@ A generative phrase engine that tries to create melodic phrases based on simple 
 - **Min Velocity** (1-127): Minimum MIDI velocity for generated notes
 - **Max Velocity** (1-127): Maximum MIDI velocity (random between min/max)
 
+**Progression Sequencer**
+
+- **Progression Mode** (Off/Auto-Loop): Enables the internal chord sequencer
+- **Loop Length** (1-8): Number of chords in the loop
+- **Prog Chords 1-4** (I-vi): Define your chord progression
+- **Measures Per Chord** (1-8): Duration of each chord
+
 **System**
 
 - **Enable Generation** (Off/On): Toggle phrase generation on/off
@@ -111,8 +119,18 @@ A generative phrase engine that tries to create melodic phrases based on simple 
 1. **Scale Awareness**: Melodies stay within the selected scale and root note
 2. **Chord Prioritization**: Chord tones of the "Current Chord" setting are weighted heavily in note selection
 3. **Voice Leading**: The engine tracks recent notes and penalizes repetition to create smooth, varied melodies
-5. **Phrase Building**: Each phrase starts and ends on musically sensible notes (usually chord tones or scale roots)
+4. **Look-Ahead Resolution**: Phrases are aware of upcoming chord changes and will try to resolve to a target note that fits the *next* chord if the phrase crosses a boundary
+5. **Phrase Building**: Each phrase starts and ends on musically sensible notes
 6. **Randomization**: I'm still working on seeding the random number generator. For now, it will play the same set of phrases each time you restart the plugin
+
+#### Visualization
+
+![Phrase Maker UI](assets/images/phrase-maker-ui.png)
+
+The plugin includes a custom UI that displays:
+- **Current & Next Chord**: Large, clear display of the harmonic context (e.g., C, Am)
+- **Piano Roll**: Real-time visualization of the generated phrase, showing note timing and pitch
+- **Status**: Visual feedback when the engine is resting between phrases
 
 #### Use Cases
 
