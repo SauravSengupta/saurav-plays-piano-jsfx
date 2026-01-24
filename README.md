@@ -66,13 +66,13 @@ A simple tool that probabilistically drops incoming MIDI note-on events. Think o
 
 **[phrase-maker.jsfx](jsfx/phrase-maker.jsfx)**
 
-A generative phrase engine that tries to create melodic phrases based on simple musical theory. It understands scales and chords, and generates natural-sounding melodies that follow a chord progression. It features a **real-time piano roll visualization** and a built-in **chord progression sequencer**.
+A generative phrase engine that tries to create melodic phrases based on simple musical theory. It understands scales and chords, and tries to generate natural-sounding melodies that follow a chord progression. It features a **real-time piano roll visualization** and a basic built-in **chord progression sequencer**.
 
 If music theory isn't your strong suit, you may find this helpful to create something that can serve as a starting point that you can then build on. I mostly use this to record a long track, listen to the generated phrases, and then pick some to work on further.
 
 #### Limitations
 
-- It still mostly sounds like computer generated music
+- It still mostly sounds like computer generated music, and probably always will
 
 #### Parameters
 
@@ -93,13 +93,6 @@ If music theory isn't your strong suit, you may find this helpful to create some
 
 - **Min Phrase Length** (2-8): Shortest phrase length in notes
 - **Max Phrase Length** (3-20): Longest phrase length in notes
-- **Density** (0.1-1.0): How busy the phrase is (sparse → packed with notes)
-- **8th Note Amount** (0-1.0): Proportion of quick 8th-note figures in the phrase
-
-**Performance**
-
-- **Min Velocity** (1-127): Minimum MIDI velocity for generated notes
-- **Max Velocity** (1-127): Maximum MIDI velocity (random between min/max)
 
 **Progression Sequencer**
 
@@ -108,6 +101,11 @@ If music theory isn't your strong suit, you may find this helpful to create some
 - **Measures Per Chord** (1-8): Duration of each chord
 - **Continuous Mode** (Off/On): When enabled, minimizes rests between phrases for a continuous flow
 - **Playback Speed** (0.5x - 8x): Scales the playback speed relative to the project tempo
+
+**Performance**
+
+- **Min Velocity** (1-127): Minimum MIDI velocity for generated notes
+- **Max Velocity** (1-127): Maximum MIDI velocity (random between min/max)
 
 **System**
 
@@ -121,7 +119,6 @@ If music theory isn't your strong suit, you may find this helpful to create some
 3. **Voice Leading**: The engine tracks recent notes and penalizes repetition to create smooth, varied melodies
 4. **Look-Ahead Resolution**: Phrases are aware of upcoming chord changes and will try to resolve to a target note that fits the *next* chord if the phrase crosses a boundary
 5. **Phrase Building**: Each phrase starts and ends on musically sensible notes
-6. **Randomization**: I'm still working on seeding the random number generator. For now, it will play the same set of phrases each time you restart the plugin
 
 #### Visualization
 
@@ -138,7 +135,6 @@ The plugin includes a custom UI that displays:
 - **MIDI sketch ideation**: Quickly generate phrase ideas to inspire further composition
 - **Ambient soundscapes**: Long, sparse phrases create meditative, evolving textures
 - **Harmonic framework**: Play chord progressions separately while this generates fitting melodies on top
-- **Learning**: Understand how melody works within harmonic/scalar constraints
 - **Filling gaps**: Generate fills or connecting phrases between your own musical ideas
 
 #### Technical Notes
@@ -152,8 +148,6 @@ The plugin includes a custom UI that displays:
 
 ##### Timing Model
 - Notes are scheduled on an 8th-note grid; phrases advance by 8ths and align back to quarter-note boundaries when needed
-- "8th Note Amount" increases the odds of adjacent 8th-note steps versus waiting for the next quarter
-- "Density" influences inner rests within phrases and the rest length after a phrase completes
 - After a phrase finishes, the plugin inserts a short rest (in quarter notes) before starting the next phrase (unless Continuous Mode is enabled)
 
 ---
