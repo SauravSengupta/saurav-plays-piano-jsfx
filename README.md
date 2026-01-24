@@ -18,7 +18,8 @@ https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/refs/heads/main/in
   ```
 
 3. Click OK and ReaPack will download the latest versions automatically.
-4. Browse available plugins via **Extensions → ReaPack → Browse packages**
+4. Browse available plugins via **Extensions → ReaPack → Browse packages**. Searching  for **Saurav** will bring up all my plugins.
+5. Right-click the ones you want to install, and select **Install <version>**.
 
 ### Option 2: Manual Install
 
@@ -79,10 +80,10 @@ If music theory isn't your strong suit, you may find this helpful to create some
 **Musical Settings**
 
 - **Root Note** (C-B): The root of the musical key (all melodies stay within this key)
-- **Scale** (Major / Minor / Dorian): Choose the tonal character
+- **Scale** (Major / Minor / Lydian): Choose the tonal character
   - *Major*: Bright, happy, traditional
   - *Minor*: Dark, sad, introspective
-  - *Dorian*: Jazzy, bittersweet, modal
+  - *Lydian*: Dreamy, bright, floating
 
 **Range Settings**
 
@@ -97,7 +98,7 @@ If music theory isn't your strong suit, you may find this helpful to create some
 **Progression Sequencer**
 
 - **Loop Length** (1-8): Number of chords in the loop
-- **Prog Chords 1-4** (I-vi): Define your chord progression
+- **Prog Chords 1-4** (I-vi, II): Define your chord progression (includes Major II)
 - **Measures Per Chord** (1-8): Duration of each chord
 - **Continuous Mode** (Off/On): When enabled, minimizes rests between phrases for a continuous flow
 - **Playback Speed** (0.5x - 8x): Scales the playback speed relative to the project tempo
@@ -106,6 +107,7 @@ If music theory isn't your strong suit, you may find this helpful to create some
 
 - **Min Velocity** (1-127): Minimum MIDI velocity for generated notes
 - **Max Velocity** (1-127): Maximum MIDI velocity (random between min/max)
+- **Sustain Pedal Modeling** (Off/On): Intelligent sustain pedal automation. It holds the pedal for chord tones to create resonance, but automatically lifts and re-pedals when non-chord tones create too much harmonic dissonance ("mud").
 
 **System**
 
@@ -119,6 +121,7 @@ If music theory isn't your strong suit, you may find this helpful to create some
 3. **Voice Leading**: The engine tracks recent notes and penalizes repetition to create smooth, varied melodies
 4. **Look-Ahead Resolution**: Phrases are aware of upcoming chord changes and will try to resolve to a target note that fits the *next* chord if the phrase crosses a boundary
 5. **Phrase Building**: Each phrase starts and ends on musically sensible notes
+6. **Pedal Modeling**: (Optional) Simulates a pianist's foot, sustaining chord tones for richness while clearing the pedal to avoid muddiness when changing harmonies or playing passing tones.
 
 #### Visualization
 
@@ -141,6 +144,7 @@ The plugin includes a custom UI that displays:
 
 - Generates MIDI note-on events with random velocities between min/max
 - Sends note-offs itself before triggering the next note to avoid hangs
+- Sends MIDI CC 64 (Sustain) messages when Pedal Modeling is enabled
 - All other MIDI data passes through unchanged
 - Phrase length and note selection are randomized for variation
 - Performance is tuned for real-time generation without latency
