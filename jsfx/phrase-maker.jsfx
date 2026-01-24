@@ -1168,7 +1168,11 @@ function add_phrase_to_viz() local(i, note, start_time, vel, duration, offset) (
 
     // Only process note starts (velocity > 0). Ignore sustains (-1) and rests (0).
     (note > 0 && vel > 0) ? (
-      start_time = phrase_start_beat + (i * 0.5);
+      // Note: phrase_slot_index increments on eighth-note boundaries, so slot 0 plays
+      // when we ENTER the eighth, but the viz was recording at the eighth START.
+      // The actual MIDI triggers when current_eighth changes, which can be up to
+      // one eighth into the slot. Adjust by 0.5 to align visual with audio.
+      start_time = phrase_start_beat + (i * 0.5) + 0.5;
       duration = 0.5;
 
       // Look ahead for sustains (velocity == -1) to combine into one block
