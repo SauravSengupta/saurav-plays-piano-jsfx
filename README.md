@@ -150,6 +150,10 @@ The plugin includes a custom UI that displays:
 - Notes are scheduled on an 8th-note grid; phrases advance by 8ths and align back to quarter-note boundaries when needed
 - After a phrase finishes, the plugin inserts a short rest (in quarter notes) before starting the next phrase (unless Continuous Mode is enabled)
 
+Here's a short audio clip that shows the plugin in action.
+
+<audio controls src="https://sauravplayspiano.com/audio/phrase-maker-demo.mp3"></audio>
+
 ---
 
 ## License
