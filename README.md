@@ -83,7 +83,6 @@ If music theory isn't your strong suit, you may find this helpful to create some
   - *Major*: Bright, happy, traditional
   - *Minor*: Dark, sad, introspective
   - *Dorian*: Jazzy, bittersweet, modal
-- **Current Chord** (I-vii, i-v): The harmonic context. The engine prioritizes chord tones when playing over this chord (e.g., if set to "V", chord tones of V are favored)
 
 **Range Settings**
 
@@ -104,10 +103,11 @@ If music theory isn't your strong suit, you may find this helpful to create some
 
 **Progression Sequencer**
 
-- **Progression Mode** (Off/Auto-Loop): Enables the internal chord sequencer
 - **Loop Length** (1-8): Number of chords in the loop
 - **Prog Chords 1-4** (I-vi): Define your chord progression
 - **Measures Per Chord** (1-8): Duration of each chord
+- **Continuous Mode** (Off/On): When enabled, minimizes rests between phrases for a continuous flow
+- **Playback Speed** (0.5x - 8x): Scales the playback speed relative to the project tempo
 
 **System**
 
@@ -129,7 +129,7 @@ If music theory isn't your strong suit, you may find this helpful to create some
 
 The plugin includes a custom UI that displays:
 - **Current & Next Chord**: Large, clear display of the harmonic context (e.g., C, Am)
-- **Piano Roll**: Real-time visualization of the generated phrase, showing note timing and pitch
+- **Piano Roll**: Continuous scrolling visualization showing history and upcoming notes
 - **Status**: Visual feedback when the engine is resting between phrases
 
 #### Use Cases
@@ -154,7 +154,7 @@ The plugin includes a custom UI that displays:
 - Notes are scheduled on an 8th-note grid; phrases advance by 8ths and align back to quarter-note boundaries when needed
 - "8th Note Amount" increases the odds of adjacent 8th-note steps versus waiting for the next quarter
 - "Density" influences inner rests within phrases and the rest length after a phrase completes
-- After a phrase finishes, the plugin inserts a short rest (in quarter notes) before starting the next phrase
+- After a phrase finishes, the plugin inserts a short rest (in quarter notes) before starting the next phrase (unless Continuous Mode is enabled)
 
 ---
 

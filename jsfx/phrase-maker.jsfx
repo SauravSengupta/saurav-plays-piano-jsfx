@@ -1,4 +1,4 @@
-version: 1.0.2
+version: 1.0.3
 desc: Phrase Maker
 author: Saurav Plays Piano
 about:
@@ -12,35 +12,34 @@ about:
 // === MUSICAL SETTINGS ===
 slider1:0<0,11,1{C,C#,D,D#,E,F,F#,G,G#,A,A#,B}>Root Note
 slider2:0<0,2,1{Major (bright happy),Minor (dark sad),Dorian (jazzy bittersweet)}>Scale
-slider3:0<0,5,1{I,ii,iii,IV,V,vi}>Current Chord (Roman Numeral)
 
 // === RANGE SETTINGS ===
-slider4:3<0,5,1{C1,C2,C3,C4,C5,C6}>Base Octave
-slider5:2<1,4,1>Octave Range
+slider3:3<0,5,1{C1,C2,C3,C4,C5,C6}>Base Octave
+slider4:2<1,4,1>Octave Range
 
 // === PHRASE SETTINGS ===
-slider6:6<2,12,1>Min Phrase Length
-slider7:16<3,24,1>Max Phrase Length
-// slider8:1<0,1,{Off,On}>Use Passing Tones
-slider9:0.75<0,1,0.05>Density (sparse to busy)
-slider13:0.25<0,1,0.05>8th Note Amount
-
-// === PERFORMANCE ===
-slider10:40<1,127,1>Min Velocity
-slider11:80<1,127,1>Max Velocity
+slider5:6<2,12,1>Min Phrase Length
+slider6:16<3,24,1>Max Phrase Length
+slider7:0.4<0,1,0.05>-Density (sparse to busy)
+slider8:0.5<0,1,0.05>-8th Note Amount
 
 // === PROGRESSION SEQUENCER ===
-slider15:1<0,1,{Off,Auto-Loop}>Progression Mode
-slider16:4<1,8,1>Loop Length (# of chords)
-slider17:0<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 1
-slider18:4<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 2
-slider19:5<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 3
-slider20:3<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 4
-slider21:4<1,8,1>Measures Per Chord
+slider9:4<1,8,1>Loop Length (# of chords)
+slider10:0<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 1
+slider11:4<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 2
+slider12:5<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 3
+slider13:3<0,5,1{I,ii,iii,IV,V,vi}>Prog Chord 4
+slider14:4<1,8,1>Measures Per Chord
+slider15:1<0,1,{Off,On}>Continuous Mode
+slider16:1<0,4,1{Half (0.5x),Normal (1x),Double (2x),Quad (4x),Oct (8x)}>Playback Speed
+
+// === PERFORMANCE ===
+slider17:40<1,127,1>Min Velocity
+slider18:80<1,127,1>Max Velocity
 
 // === SYSTEM ===
-slider12:1<0,1,{Off,On}>Enable Generation
-slider14:0<0,127,1>MIDI Channel (0=all)
+slider19:1<0,1,{Off,On}>Enable Generation
+slider20:0<0,127,1>MIDI Channel (0=all)
 
 in_pin:none
 out_pin:none
@@ -51,9 +50,10 @@ out_pin:none
 // ============================================
 
 // Weight constants for note selection
-CHORD_ROOT_WEIGHT = 60;   // Root of chord - strongest
-CHORD_FIFTH_WEIGHT = 25;  // Perfect 5th - strong
-CHORD_THIRD_WEIGHT = 10;  // Major/minor 3rd - moderate
+CHORD_ROOT_WEIGHT = 50;   // Root - Grounding (lowered slightly to reduce finality)
+CHORD_FIFTH_WEIGHT = 35;  // 5th - Open/Spacious (Boosted for ambient feel)
+CHORD_SEVENTH_WEIGHT = 20;// 7th - Floating/Unresolved (New)
+CHORD_THIRD_WEIGHT = 10;  // 3rd - Emotional definition (Lowered for background)
 SCALE_TONE_WEIGHT = 4;    // Non-chord scale degrees
 PASSING_TONE_WEIGHT = 1;  // Chromatic passing tones
 
@@ -129,6 +129,7 @@ chord_quality[5] = 1; // vi - minor
 // Working arrays
 current_scale = 200;      // 7 notes
 current_chord_tones = 210; // up to 4 notes (root, 3rd, 5th, 7th)
+current_chord_idx = 0;    // Internal variable for current chord (0-5)
 available_notes = 220;    // all available MIDI notes with weights
 note_weights = 300;       // parallel array of weights
 
@@ -169,6 +170,19 @@ prog_chords = 900;            // Array to store the progression sequence
 prog_current_chord = -1;      // Currently active chord (-1 = uninitialized)
 prog_beats_until_change = 0;  // Beats remaining until next chord change
 last_beat_position = -1;      // Track playback position for seek/loop detection
+last_speed_mult = -1;         // Track speed changes
+
+// Scheduling context (passed from builder to scheduler)
+sched_target_next_chord = 0;
+sched_next_chord_idx = 0;
+sched_boundary_beats = 0;
+
+// Visualization History
+viz_buffer_size = 128;
+viz_buffer_pitch = 1000;
+viz_buffer_start = 1200;
+viz_buffer_len = 1400;
+viz_head = 0;
 
 // ============================================
 // SCALE & CHORD FUNCTIONS
@@ -191,8 +205,8 @@ function build_scale() local(i, base, root) (
 );
 
 function build_chord_tones() local(degree, quality, root_idx, third_idx, fifth_idx, base) (
-  degree = chord_degrees[slider3];
-  quality = chord_quality[slider3];
+  degree = chord_degrees[current_chord_idx];
+  quality = chord_quality[current_chord_idx];
   base = get_scale_base();
 
   // Root of chord (scale degree)
@@ -279,7 +293,7 @@ function gfx_print_note_name(midi_note) local(note_class, octave) (
 function is_chord_tone(note_class) local(i, found) (
   found = 0;
   i = 0;
-  loop(3, // Check root, 3rd, 5th
+  loop(4, // Check root, 3rd, 5th, 7th
     note_class == current_chord_tones[i] ? found = 1;
     i += 1;
   );
@@ -290,11 +304,12 @@ function is_chord_tone(note_class) local(i, found) (
 function get_chord_tone_weight(note_class) local(i, weight) (
   weight = 0;
   i = 0;
-  loop(3,
+  loop(4,
     note_class == current_chord_tones[i] ? (
       i == 0 ? weight = CHORD_ROOT_WEIGHT :   // Root
       i == 1 ? weight = CHORD_THIRD_WEIGHT :  // 3rd
-      weight = CHORD_FIFTH_WEIGHT;            // 5th
+      i == 2 ? weight = CHORD_FIFTH_WEIGHT :  // 5th
+      weight = CHORD_SEVENTH_WEIGHT;          // 7th
     );
     i += 1;
   );
@@ -309,20 +324,6 @@ function is_scale_tone(note_class) local(i, found) (
     i += 1;
   );
   found;
-);
-
-// Unified note selection weight: chord tones > scale tones > passing tones
-function get_note_selection_weight(midi_note) local(note_class, weight) (
-  note_class = midi_note % 12;
-  weight = 0;
-  is_chord_tone(note_class) ? (
-    weight = get_chord_tone_weight(note_class);
-  ) : is_scale_tone(note_class) ? (
-    weight = SCALE_TONE_WEIGHT;
-  ) : (
-    weight = PASSING_TONE_WEIGHT;
-  );
-  weight;
 );
 
 // Check how recently a note was played (returns 0-1, where 1 = most recent)
@@ -341,6 +342,24 @@ function get_recency_penalty(midi_note) local(i, pos, recency) (
   recency;
 );
 
+// Unified note selection weight: chord tones > scale tones > passing tones
+function get_note_selection_weight(midi_note) local(note_class, weight, penalty) (
+  note_class = midi_note % 12;
+  weight = 0;
+  is_chord_tone(note_class) ? (
+    weight = get_chord_tone_weight(note_class);
+  ) : is_scale_tone(note_class) ? (
+    weight = SCALE_TONE_WEIGHT;
+  ) : (
+    weight = PASSING_TONE_WEIGHT;
+  );
+  
+  // Apply recency penalty to encourage variety
+  penalty = get_recency_penalty(midi_note);
+  weight = weight * (1.0 - (penalty * 0.8)); // Reduce weight by up to 80% if recently played
+  weight;
+);
+
 // Add note to history
 function add_to_history(midi_note) (
   note_history[note_history_idx] = midi_note;
@@ -356,7 +375,8 @@ function add_to_history(midi_note) (
 function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
     density, eighth_prob, inner_rest_prob, rest_scale, base_inner_rest,
     rest_weight, rest_multiplier, rest_emphasis, velocity, vel_range,
-    sparse_boost, min_rest, max_rest) (
+    sparse_boost, min_rest, max_rest, original_chord_idx, switched_context,
+    current_beat_time) (
 
   // Clear the events array
   slot = 0;
@@ -367,14 +387,18 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
   );
 
   // Get parameters
-  density = max(0, min(1, slider9));
-  eighth_prob = slider13;
-  vel_range = slider11 - slider10;
+  density = max(0, min(1, slider7));
+  eighth_prob = slider8;
+  vel_range = slider18 - slider17;
 
   // Calculate inner rest probability (same formula as before)
   rest_scale = 1 - density;
   base_inner_rest = INNER_REST_BASE * rest_scale * sqrt(rest_scale) * 1.6;
   base_inner_rest = min(1, base_inner_rest);
+
+  // Store original context to restore later
+  original_chord_idx = current_chord_idx;
+  switched_context = 0;
 
   // Schedule each note
   slot = 0;
@@ -382,7 +406,20 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
   i = 0;
   max_slot_used = 0;
   loop(phrase_length,
+    // Context Switching: Check if we've crossed the chord boundary
+    current_beat_time = slot * 0.5;
+    (sched_target_next_chord && current_beat_time >= sched_boundary_beats) ? (
+      !switched_context ? (
+        current_chord_idx = sched_next_chord_idx;
+        build_chord_tones();
+        switched_context = 1;
+      );
+    );
+
     note = phrase_notes[i];
+    
+    // Add to history to prevent immediate repetition in future phrases
+    add_to_history(note);
 
     // Place this note at current slot (all notes play)
     phrase_events[slot] = note;
@@ -394,18 +431,18 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
       note_diff > 0 ? (
         // Upward phrase: increase velocity incrementally
         velocity = phrase_velocities[slot - 1] + 3 + rand() * 2;
-        velocity = max(slider10, min(slider11, velocity));
+        velocity = max(slider17, min(slider18, velocity));
       ) : note_diff < 0 ? (
         // Downward phrase: decrease velocity incrementally
         velocity = phrase_velocities[slot - 1] - 3 - rand() * 2;
-        velocity = max(slider10, min(slider11, velocity));
+        velocity = max(slider17, min(slider18, velocity));
       ) : (
         // Repeated note: maintain velocity with slight variation
         velocity = phrase_velocities[slot - 1] + (rand() * 4 - 2);
-        velocity = max(slider10, min(slider11, velocity));
+        velocity = max(slider17, min(slider18, velocity));
       );
     ) : (
-      velocity = slider10 + rand() * vel_range;
+      velocity = slider17 + rand() * vel_range;
     );
     phrase_velocities[slot] = max(1, min(127, floor(velocity)));
 
@@ -425,11 +462,19 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
         slot += 1;
       ) : (
         // Next note on quarter boundary (skip to even slot)
+        // LEGATO: Fill the gap with the same note but mark velocity as -1 (Sustain)
+        phrase_events[slot + 1] = note;
+        phrase_velocities[slot + 1] = -1;
+        
         slot += 1;
         (slot % 2 == 1) ? slot += 1;  // Ensure even slot for quarter note
         
         // For very important notes (root/fifth), add extra gap at sparse densities
         (rest_emphasis > 1.5 && density < 0.5 && rand() < (rest_emphasis - 1.0)) ? (
+          // If adding extra rest, clear the sustain we just added
+          phrase_events[slot - 1] = 0;
+          phrase_velocities[slot - 1] = 0;
+          
           slot += 2;  // Add full quarter note of extra space
         );
       );
@@ -438,18 +483,29 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
     i += 1;
   );
 
+  // Restore original context if we switched
+  switched_context ? (
+    current_chord_idx = original_chord_idx;
+    build_chord_tones();
+  );
+
   // Record total slots used (count = highest slot index + 1)
   phrase_slot_count = max_slot_used + 1;
 
   // Calculate rest after this phrase (in 8th notes since countdown is now per-8th)
-  rest_scale = 1 - density;
-  sparse_boost = 1 + rest_scale * 1.5;
-  min_rest = ceil(REST_MIN_BASE * sparse_boost * 2);  // Convert to 8ths
-  max_rest = ceil(REST_MAX_BASE * sparse_boost * 2);  // Convert to 8ths
-  min_rest = max(REST_MIN_FLOOR * 2, min_rest);
-  max_rest = min(REST_MAX_CEILING * 2, max_rest);
-  max_rest = max(min_rest, max_rest);
-  phrase_rest_after = min_rest + floor(rand() * (max_rest - min_rest + 1));
+  slider15 == 1 ? (
+    // Continuous mode: minimal rest (0-1 eighth notes) to match inner phrase timing
+    phrase_rest_after = floor(rand() * 2);
+  ) : (
+    rest_scale = 1 - density;
+    sparse_boost = 1 + rest_scale * 1.5;
+    min_rest = ceil(REST_MIN_BASE * sparse_boost * 2);  // Convert to 8ths
+    max_rest = ceil(REST_MAX_BASE * sparse_boost * 2);  // Convert to 8ths
+    min_rest = max(REST_MIN_FLOOR * 2, min_rest);
+    max_rest = min(REST_MAX_CEILING * 2, max_rest);
+    max_rest = max(min_rest, max_rest);
+    phrase_rest_after = min_rest + floor(rand() * (max_rest - min_rest + 1));
+  );
 );
 
 // Nudge the final note toward the nearest measure downbeat when close (bias, not absolute)
@@ -457,7 +513,6 @@ function bias_phrase_end_to_downbeat() local(i, last_slot, slot_idx, note, vel,
     chord_pos_beats, phrase_end_rel_beats, target_abs_beats, nearest_downbeat,
     diff_beats, desired_rel_beats, desired_slot) (
 
-  (slider15 == 1) ? (
     // Find last occupied slot (highest index with a note)
     last_slot = -1;
     i = 0;
@@ -491,17 +546,18 @@ function bias_phrase_end_to_downbeat() local(i, last_slot, slot_idx, note, vel,
           phrase_velocities[desired_slot] = vel;
           phrase_slot_count = max(phrase_slot_count, desired_slot + 1);
           // Increase rest after phrase to emphasize the downbeat landing
-          phrase_rest_after += DOWNBEAT_REST_BONUS;
+          slider15 == 0 ? (
+            phrase_rest_after += DOWNBEAT_REST_BONUS;
+          );
         );
       );
     );
-  );
 );
 
 // Convert octave slider (0-5 = C1-C6) to MIDI base note
 // C1 = MIDI 24, C2 = 36, C3 = 48, C4 = 60, C5 = 72, C6 = 84
 function get_base_note() (
-  (slider4 + 1) * 12 + 12;  // slider4=0 -> 24 (C1), slider4=3 -> 60 (C4)
+  (slider3 + 1) * 12 + 12;  // slider3=0 -> 24 (C1), slider3=3 -> 60 (C4)
 );
 
 // ============================================
@@ -511,7 +567,7 @@ function get_base_note() (
 // Helper: Initialize phrase boundaries (hard and soft)
 function init_phrase_boundaries() local(base_note, top_note) (
   base_note = get_base_note();
-  top_note = base_note + (slider5 * 12);
+  top_note = base_note + (slider4 * 12);
   
   // Store in global temp variables
   temp_base_note = base_note;
@@ -523,7 +579,7 @@ function init_phrase_boundaries() local(base_note, top_note) (
 // Pick an ending note: weighted toward chord tones (95%), scale tones (4%), passing tones (1%)
 function pick_phrase_endpoint() local(base_note, top_note, midi_note, note_class, weight, total_weight, random_val, cumulative, idx, selected, range) (
   base_note = get_base_note();
-  top_note = base_note + (slider5 * 12);
+  top_note = base_note + (slider4 * 12);
   
   // Extend boundaries for soft limits
   soft_base = base_note - SOFT_BOUNDARY_EXTENSION;
@@ -1019,43 +1075,46 @@ function build_phrase_notes(direction, temp_count)
 );
 
 // Build entire phrase by walking scale from calculated start to pre-selected end
-function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, temp_count, success, target_next_chord, saved_slider3, next_chord_idx, valid_endpoint) (
+function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, temp_count, success, target_next_chord, saved_chord_idx, next_chord_idx, valid_endpoint) (
   phrase_build_counter += 1;
 
   // Step 1: Initialize boundaries
   init_phrase_boundaries();
 
   // Step 2: Determine phrase length FIRST (so we know if we cross chord boundary)
-  max_phrase = min(slider7, slider5 * 7);
-  min_phrase = min(slider6, max_phrase);
+  max_phrase = min(slider6, slider4 * 7);
+  min_phrase = min(slider5, max_phrase);
   random_length = rand();
   phrase_length = min_phrase + floor(random_length * (max_phrase - min_phrase + 1));
 
   // Step 3: Check if we cross chord boundary and should target next chord
   target_next_chord = 0;
-  (slider15 == 1) ? (
-    rand() < CHORD_BOUNDARY_RESPECT_PROB ? (
-      // Truncate to fit in current chord (moved from build_phrase_notes)
-      phrase_length = min(phrase_length, max(2, prog_beats_until_change - 1));
-    ) : (
-      // Allowed to cross. If phrase is long enough, target next chord
-      (phrase_length * 0.5 > prog_beats_until_change) ? target_next_chord = 1;
-    );
+  rand() < CHORD_BOUNDARY_RESPECT_PROB ? (
+    // Truncate to fit in current chord (moved from build_phrase_notes)
+    phrase_length = min(phrase_length, max(2, (prog_beats_until_change * 2)));
+  ) : (
+    // Allowed to cross. If phrase is long enough, target next chord
+    (phrase_length * 0.5 > prog_beats_until_change) ? target_next_chord = 1;
   );
 
   // Step 4: Pick and validate endpoint
   // If targeting next chord, temporarily switch context
   target_next_chord ? (
-    saved_slider3 = slider3;
-    next_chord_idx = (prog_chord_index + 1) % slider16;
-    slider3 = prog_chords[next_chord_idx];
+    saved_chord_idx = current_chord_idx;
+    next_chord_idx = (prog_chord_index + 1) % slider9;
+    current_chord_idx = prog_chords[next_chord_idx];
     build_chord_tones();
   );
+  
+  // Prepare scheduling context globals
+  sched_target_next_chord = target_next_chord;
+  sched_next_chord_idx = next_chord_idx;
+  sched_boundary_beats = prog_beats_until_change;
 
   valid_endpoint = pick_and_validate_endpoint();
 
   target_next_chord ? (
-    slider3 = saved_slider3;
+    current_chord_idx = saved_chord_idx;
     build_chord_tones();
   );
 
@@ -1083,7 +1142,7 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
         phrase_active = 1;
         phrase_slot_index = 0;
         phrase_start_beat = -1;  // Will be set on first playback tick
-        phrase_built_for_chord = slider3;  // Store which chord this phrase was built for
+        phrase_built_for_chord = current_chord_idx;  // Store which chord this phrase was built for
       ) : (
         // Build failed
         phrase_active = 0;
@@ -1101,92 +1160,118 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
   );
 );
 
+function add_phrase_to_viz() local(i, note, start_time, vel, duration, offset) (
+  i = 0;
+  loop(phrase_slot_count,
+    note = phrase_events[i];
+    vel = phrase_velocities[i];
+
+    // Only process note starts (velocity > 0). Ignore sustains (-1) and rests (0).
+    (note > 0 && vel > 0) ? (
+      start_time = phrase_start_beat + (i * 0.5);
+      duration = 0.5;
+
+      // Look ahead for sustains (velocity == -1) to combine into one block
+      offset = 1;
+      while (i + offset < phrase_slot_count && phrase_events[i+offset] == note && phrase_velocities[i+offset] == -1) (
+        duration += 0.5;
+        offset += 1;
+      );
+
+      viz_buffer_pitch[viz_head] = note;
+      viz_buffer_start[viz_head] = start_time;
+      viz_buffer_len[viz_head] = duration;
+      viz_head = (viz_head + 1) % viz_buffer_size;
+    );
+    i += 1;
+  );
+);
+
 // ============================================
 // MIDI OUTPUT FUNCTIONS
 // ============================================
 
 function send_note_on(note, vel) (
-  midisend(0, $x90 + (slider14 > 0 ? slider14 - 1 : 0), note, vel);
+  midisend(0, $x90 + (slider20 > 0 ? slider20 - 1 : 0), note, vel);
   note_playing = note;
 );
 
 function send_note_off() (
   note_playing > 0 ? (
-    midisend(0, $x80 + (slider14 > 0 ? slider14 - 1 : 0), note_playing, 0);
+    midisend(0, $x80 + (slider20 > 0 ? slider20 - 1 : 0), note_playing, 0);
     note_playing = 0;
   );
 );
 
 @slider
 build_scale();
+
+// Update progression chords from sliders
+prog_chords[0] = slider10;
+prog_chords[1] = slider11;
+prog_chords[2] = slider12;
+prog_chords[3] = slider13;
+
 build_chord_tones();
 
 @block
 // ============================================
 // PROGRESSION SEQUENCER
 // ============================================
-(slider15 == 1) ? (  // Auto-Loop mode enabled
-  // Calculate current beat number from beat_position
-  beat_num = floor(beat_position);
+  // Calculate speed multiplier
+  speed_mult = (slider16 == 0) ? 0.5 : (slider16 == 1) ? 1.0 : (slider16 == 2) ? 2.0 : (slider16 == 3) ? 4.0 : 8.0;
   
-  // Initialize progression array on first run
-  prog_last_beat_num < 0 ? (
-    prog_beat_counter = 0;
-    prog_chord_index = 0;
-    prog_last_beat_num = beat_num;
-    prog_current_chord = -1;  // Force rebuild on first beat
-    
-    // Rebuild progression array from sliders
-    prog_chords[0] = slider17;
-    prog_chords[1] = slider18;
-    prog_chords[2] = slider19;
-    prog_chords[3] = slider20;
-  );
-  
-  // Detect beat changes (beat_num increments on each quarter note)
-  beat_num != prog_last_beat_num ? (
-    prog_last_beat_num = beat_num;
-    prog_beat_counter += 1;
-    
-    // Time to advance to next chord? (slider21 is in measures, multiply by 4 for beats)
-    prog_beat_counter >= (slider21 * 4) ? (
-      prog_beat_counter = 0;
-      prog_chord_index = (prog_chord_index + 1) % slider16;
-      // Reset rest so new chord starts immediately if we were waiting
+  // Detect speed change and reset state to prevent timing glitches
+  speed_mult != last_speed_mult ? (
+    last_speed_mult >= 0 ? ( // Don't reset on first run
+      send_note_off();
+      phrase_active = 0;
       between_phrase_rest = 0;
     );
-    
-    // Update current chord from progression
-    new_chord = prog_chords[prog_chord_index];
-    
-    // If chord changed, rebuild chord tones
-    new_chord != prog_current_chord ? (
-      prog_current_chord = new_chord;
-      // Manually set slider3 and rebuild
-      slider3 = prog_current_chord;
-      sliderchange(slider3);
-      build_chord_tones();
-    );
+    last_speed_mult = speed_mult;
   );
   
-  // Calculate beats remaining until chord change
-  prog_beats_until_change = (slider21 * 4) - prog_beat_counter;
-) : (
-  // Reset progression state when mode is Off
-  prog_last_beat_num < 0 ? (
-    prog_last_beat_num = 0;
+  scaled_beat_pos = beat_position * speed_mult;
+
+  // Calculate current beat number from beat_position
+  beat_num = floor(scaled_beat_pos);
+
+  // Absolute Grid Sequencing
+  // Calculate which chord we are on based on absolute beat position
+  beats_per_chord = floor(slider14 * 4 * speed_mult);
+  
+  // Handle negative beats (pre-roll) by clamping to 0
+  abs_beat = max(0, beat_num);
+  
+  // Calculate progression position
+  total_chords_passed = floor(abs_beat / beats_per_chord);
+  prog_chord_index = total_chords_passed % slider9;
+  prog_beat_counter = abs_beat % beats_per_chord;
+  
+  // Update current chord
+  new_chord = prog_chords[prog_chord_index];
+  
+  // If chord changed, rebuild chord tones
+  new_chord != prog_current_chord ? (
+    prog_current_chord = new_chord;
+    current_chord_idx = prog_current_chord;
+    build_chord_tones();
+    // Reset rest so new chord starts immediately if we were waiting
+    between_phrase_rest = 0;
   );
-  prog_beats_until_change = 999;
-);
+
+  // Calculate beats remaining until chord change
+  // Include fractional part for precision
+  prog_beats_until_change = beats_per_chord - prog_beat_counter - (scaled_beat_pos - beat_num);
 
 // Pass through incoming MIDI (always, regardless of generation state)
 while(midirecv(offset, msg1, msg2, msg3)) (
   midisend(offset, msg1, msg2, msg3);
 );
 
-(slider12 == 1 && play_position > 0) ? ( // Generation enabled (skip if stopped)
+(slider19 == 1 && play_position > 0) ? ( // Generation enabled (skip if stopped)
   // Calculate current 8th-note slot from beat position
-  current_eighth = floor(beat_position * 2);
+  current_eighth = floor(scaled_beat_pos * 2);
 
   // Detect loop or seek (beat position jumped backwards or significantly forwards)
   (last_beat_position >= 0 && (beat_position < last_beat_position || beat_position > last_beat_position + 4)) ? (
@@ -1197,11 +1282,6 @@ while(midirecv(offset, msg1, msg2, msg3)) (
   );
   last_beat_position = beat_position;
 
-  // Build first phrase if needed
-  (!phrase_active && between_phrase_rest == 0 && phrase_slot_count == 0) ? (
-    build_phrase_from_endpoint();
-  );
-
   // New 8th note boundary?
   current_eighth != last_eighth ? (
     last_eighth = current_eighth;
@@ -1210,11 +1290,10 @@ while(midirecv(offset, msg1, msg2, msg3)) (
       // Not in phrase - handle rest countdown (on every 8th boundary)
       between_phrase_rest > 0 ? (
         between_phrase_rest -= 1;
-        between_phrase_rest == 0 ? (
-          build_phrase_from_endpoint();
-        );
-      ) : (
-        // No rest pending, build new phrase
+      );
+
+      // Only start phrases on quarter note boundaries (even 8th notes) to avoid syncopation
+      (between_phrase_rest <= 0 && current_eighth % 2 == 0) ? (
         build_phrase_from_endpoint();
       );
     );
@@ -1225,6 +1304,7 @@ while(midirecv(offset, msg1, msg2, msg3)) (
         phrase_start_beat = current_eighth / 2;
         phrase_start_eighth = current_eighth;
         phrase_slot_index = 0;
+        add_phrase_to_viz();
       );
 
       // Calculate which slot we should be at (using integer math)
@@ -1236,13 +1316,15 @@ while(midirecv(offset, msg1, msg2, msg3)) (
         note = phrase_events[phrase_slot_index];
         velocity = phrase_velocities[phrase_slot_index];
 
-        // Play if there's a note (0 = rest)
-        note > 0 ? (
-          send_note_off();
-          send_note_on(note, velocity);
-        ) : (
-          // Rest (0) - stop previous note if playing
-          send_note_off();
+        // Play if there's a note (0 = rest, -1 velocity = sustain)
+        velocity != -1 ? (
+          note > 0 ? (
+            send_note_off();
+            send_note_on(note, velocity);
+          ) : (
+            // Rest (0) - stop previous note if playing
+            send_note_off();
+          );
         );
       ) : (
         // Phrase complete - start rest period
@@ -1298,23 +1380,21 @@ gfx_y += 20;
 gfx_x = margin;
 gfx_set(1, 1, 1, 1);
 gfx_setfont(2);
-display_current_chord = (slider15 == 1) ? prog_current_chord : slider3;
+display_current_chord = current_chord_idx;
 gfx_print_chord_name(display_current_chord);
 
 // Next Chord (if auto)
-(slider15 == 1) ? (
-  gfx_x = gfx_w / 2;
-  gfx_y = current_y;
-  gfx_set(0.4, 0.8, 1.0, 1);
-  gfx_setfont(1);
-  gfx_drawstr("NEXT CHORD");
-  gfx_y += 20;
-  gfx_x = gfx_w / 2;
-  gfx_set(0.7, 0.7, 0.7, 1); // Dimmer white
-  gfx_setfont(2);
-  display_next_chord = prog_chords[(prog_chord_index + 1) % slider16];
-  gfx_print_chord_name(display_next_chord);
-);
+gfx_x = gfx_w / 2;
+gfx_y = current_y;
+gfx_set(0.4, 0.8, 1.0, 1);
+gfx_setfont(1);
+gfx_drawstr("NEXT CHORD");
+gfx_y += 20;
+gfx_x = gfx_w / 2;
+gfx_set(0.7, 0.7, 0.7, 1); // Dimmer white
+gfx_setfont(2);
+display_next_chord = prog_chords[(prog_chord_index + 1) % slider9];
+gfx_print_chord_name(display_next_chord);
 
 // 3. Phrase Visualization
 gfx_y = current_y + chord_section_h;
@@ -1325,82 +1405,109 @@ viz_w = gfx_w - 2*margin;
 gfx_set(0.15, 0.15, 0.15, 1);
 gfx_rect(margin, viz_y, viz_w, viz_h);
 
-// Draw Phrase or Rest status
-(phrase_active && phrase_slot_count > 0) ? (
-  // Find range for auto-scaling
-  min_note = 127; max_note = 0;
-  i = 0;
-  loop(phrase_slot_count,
-    n = phrase_events[i];
-    n > 0 ? (
-      min_note = min(min_note, n);
-      max_note = max(max_note, n);
-    );
-    i += 1;
+// Settings for continuous view
+speed_mult = (slider16 == 0) ? 0.5 : (slider16 == 1) ? 1.0 : (slider16 == 2) ? 2.0 : (slider16 == 3) ? 4.0 : 8.0;
+scaled_beat_pos = beat_position * speed_mult;
+
+beats_on_screen = 12; 
+lookahead_beats = 8;
+right_edge_beat = scaled_beat_pos + lookahead_beats;
+left_edge_beat = right_edge_beat - beats_on_screen;
+
+// Y-Axis Scaling (Fixed based on settings for stability)
+min_note = get_base_note() - 2;
+note_range = (slider4 * 12) + 4;
+
+// Draw Grid (Quarter notes)
+start_beat_int = floor(left_edge_beat);
+loop_count = beats_on_screen + 2;
+i = 0;
+loop(loop_count,
+  b = start_beat_int + i;
+  x = margin + ((b - left_edge_beat) / beats_on_screen) * viz_w;
+  (x >= margin && x <= margin + viz_w) ? (
+    // Highlight downbeats (assuming 4/4)
+    (b % 4 == 0) ? gfx_set(0.3, 0.3, 0.3, 1) : gfx_set(0.2, 0.2, 0.2, 1);
+    gfx_line(x, viz_y, x, viz_y + viz_h);
   );
+  i += 1;
+);
+
+// Draw Notes from History
+i = 0;
+loop(viz_buffer_size,
+  idx = i; 
+  n = viz_buffer_pitch[idx];
   
-  // Padding for range
-  range = max(12, max_note - min_note); // Min range of octave
-  mid = (min_note + max_note) / 2;
-  min_note = mid - range/2;
-  
-  slot_w = viz_w / phrase_slot_count;
-  
-  i = 0;
-  loop(phrase_slot_count,
-    n = phrase_events[i];
-    x = margin + i * slot_w;
+  n > 0 ? (
+    t_start = viz_buffer_start[idx];
+    t_len = viz_buffer_len[idx];
+    t_end = t_start + t_len;
     
-    // Draw grid line (every beat = 2 slots)
-    (i % 2 == 0) ? (
-      gfx_set(0.2, 0.2, 0.2, 1);
-      gfx_line(x, viz_y, x, viz_y + viz_h);
-    );
-    
-    n > 0 ? (
-      // Draw Note
-      norm_p = (n - min_note) / range;
+    // Check overlap with view
+    (t_end > left_edge_beat && t_start < right_edge_beat) ? (
+      // Calculate coords
+      x1 = margin + ((t_start - left_edge_beat) / beats_on_screen) * viz_w;
+      w = (t_len / beats_on_screen) * viz_w;
+      
+      // Clip to view
+      x1 < margin ? ( w -= (margin - x1); x1 = margin; );
+      (x1 + w) > (margin + viz_w) ? ( w = (margin + viz_w) - x1; );
+      
+      // Y coord
+      norm_p = (n - min_note) / note_range;
       norm_p = max(0, min(1, norm_p));
+      h = 8;
+      y = viz_y + viz_h - (norm_p * (viz_h - 20)) - 15;
       
-      h = 10; // fixed height bars
-      y = viz_y + viz_h - (norm_p * (viz_h - 30)) - 20;
-      
-      // Color based on active
-      (i == phrase_slot_index) ? gfx_set(1, 1, 1, 1) : gfx_set(0.4, 0.8, 0.5, 0.8);
-      
-      gfx_rect(x + 1, y, slot_w - 2, h);
-      
-      // Draw note name if wide enough
-      slot_w > 25 ? (
-        gfx_x = x + 2; gfx_y = y - 12;
-        gfx_setfont(4);
-        gfx_set(1,1,1,0.5);
-        gfx_print_note_name(n);
+      // Color: Highlight if currently playing
+      (scaled_beat_pos >= t_start && scaled_beat_pos < t_end) ? (
+          gfx_set(1, 1, 1, 1);
+      ) : (
+          gfx_set(0.4, 0.8, 0.5, 0.8);
       );
+      
+      gfx_rect(x1, y, w, h);
     );
-    i += 1;
   );
-  
-  // Playhead
-  px = margin + phrase_slot_index * slot_w;
+  i += 1;
+);
+
+// Playhead
+playhead_x = margin + ((scaled_beat_pos - left_edge_beat) / beats_on_screen) * viz_w;
+(playhead_x >= margin && playhead_x <= margin + viz_w) ? (
   gfx_set(1, 0.3, 0.3, 0.8);
-  gfx_rect(px, viz_y, 2, viz_h);
-  
+  gfx_rect(playhead_x, viz_y, 2, viz_h);
+);
+
+// Status Overlay
+!slider19 ? (
+  gfx_x = margin + 10; gfx_y = viz_y + 10;
+  gfx_setfont(3); gfx_set(1, 0.5, 0.5, 1);
+  gfx_drawstr("Generation Disabled");
 ) : (
-  // Resting State
-  gfx_x = margin + 20;
-  gfx_y = viz_y + viz_h/2 - 10;
-  gfx_setfont(3);
-  gfx_set(0.6, 0.6, 0.6, 1);
-  
   between_phrase_rest > 0 ? (
-    gfx_drawstr("Resting... ");
+    gfx_x = margin + 10; gfx_y = viz_y + 10;
+    gfx_setfont(4); gfx_set(0.7, 0.7, 0.7, 0.8);
+    gfx_drawstr("Resting: ");
     gfx_printf("%d", between_phrase_rest);
-    gfx_drawstr(" beats");
-  ) : (
-    !slider12 ? gfx_drawstr("Generation Disabled") : gfx_drawstr("Waiting...");
   );
 );
+
+/*
+// Legacy Page View (Removed)
+/*
+(phrase_active && phrase_slot_count > 0) ? (
+  // ... (old drawing code)
+    n > 0 ? (
+      // Draw Note
+    );
+    i += 1;
+  );
+) : (
+  // ...
+);
+*/
 
 // 4. Footer / Status
 gfx_y = viz_y + viz_h + 10;
@@ -1408,7 +1515,7 @@ gfx_x = margin;
 gfx_setfont(4);
 gfx_set(0.5, 0.5, 0.5, 1);
 gfx_drawstr("Density: "); 
-gfx_printf("%d%%", slider9 * 100);
+gfx_printf("%d%%", slider7 * 100);
 gfx_drawstr("  |  Range: ");
-gfx_printf("%d", slider5);
+gfx_printf("%d", slider4);
 gfx_drawstr(" oct");
