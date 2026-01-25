@@ -1,0 +1,427 @@
+version: 1.0.0
+desc: Chord Timing Meter
+author: Saurav Plays Piano
+about:
+  # Chord Timing Meter
+  A practice tool for pianists and keyboard players to visualize chord accuracy. When you play a chord, each note appears as a colored circle showing its timing (horizontal) and velocity (vertical) relative to the other notes. Perfect playing means all circles cluster in the center. Use this to identify weak points in your technique - whether you're rolling chords unevenly or hitting some notes harder than others.
+
+slider1:200<50,500,10>Time Range (±ms)
+slider2:50<10,200,5>Chord Window (ms)
+slider3:20<5,50,1>Perfect Zone Time (±ms)
+slider4:5<1,15,1>Perfect Zone Velocity (±)
+slider5:3000<500,10000,100>Display Duration (ms)
+slider6:0<0,1,1{Off,On}>Show Grid
+
+@init
+// Memory allocation
+chord_notes = 0;        // Start of chord note storage (note, time, velocity) x 10
+max_chord_notes = 10;
+note_size = 3;          // note, time_ms, velocity
+
+// Current chord data
+num_notes = 0;
+chord_start_time = 0;
+chord_active = 0;
+last_note_time = 0;
+display_until = 0;
+
+// Note names
+note_names = 100;
+note_names[0] = 'C';
+note_names[1] = 'C';  // C#
+note_names[2] = 'D';
+note_names[3] = 'D';  // D#
+note_names[4] = 'E';
+note_names[5] = 'F';
+note_names[6] = 'F';  // F#
+note_names[7] = 'G';
+note_names[8] = 'G';  // G#
+note_names[9] = 'A';
+note_names[10] = 'A'; // A#
+note_names[11] = 'B';
+
+// Sharp indicators (1 = sharp)
+note_sharps = 120;
+note_sharps[0] = 0;
+note_sharps[1] = 1;
+note_sharps[2] = 0;
+note_sharps[3] = 1;
+note_sharps[4] = 0;
+note_sharps[5] = 0;
+note_sharps[6] = 1;
+note_sharps[7] = 0;
+note_sharps[8] = 1;
+note_sharps[9] = 0;
+note_sharps[10] = 1;
+note_sharps[11] = 0;
+
+// Display chord storage (copy for rendering)
+display_notes = 200;
+display_num = 0;
+display_avg_time = 0;
+display_avg_vel = 0;
+display_min_vel = 127;
+display_max_vel = 0;
+display_time_spread = 0;
+display_vel_spread = 0;
+
+// Colors for notes (hue rotation)
+function hsv_to_rgb(h, s, v) local(i, f, p, q, t) (
+  h = h - floor(h);
+  i = floor(h * 6);
+  f = h * 6 - i;
+  p = v * (1 - s);
+  q = v * (1 - f * s);
+  t = v * (1 - (1 - f) * s);
+  i == 0 ? (this.r = v; this.g = t; this.b = p;) :
+  i == 1 ? (this.r = q; this.g = v; this.b = p;) :
+  i == 2 ? (this.r = p; this.g = v; this.b = t;) :
+  i == 3 ? (this.r = p; this.g = q; this.b = v;) :
+  i == 4 ? (this.r = t; this.g = p; this.b = v;) :
+          (this.r = v; this.g = p; this.b = q;);
+);
+
+function get_current_time_ms() (
+  play_state & 1 ?
+    (play_position * 1000) :
+    (time_precise() * 1000);
+);
+
+@block
+// Process MIDI
+while (midirecv(offset, msg1, msg2, msg3)) (
+  status = msg1 & 0xF0;
+  channel = msg1 & 0x0F;
+
+  // Note On with velocity > 0
+  status == 0x90 && msg3 > 0 ? (
+    current_time = get_current_time_ms() + offset * 1000 / srate;
+
+    // Check if this is part of current chord or a new chord
+    (num_notes == 0 || (current_time - last_note_time) > slider2) ? (
+      // New chord - save previous if exists
+      num_notes > 1 ? (
+        // Copy to display buffer
+        display_num = num_notes;
+        i = 0;
+        sum_time = 0;
+        sum_vel = 0;
+        display_min_vel = 127;
+        display_max_vel = 0;
+        min_time = 999999;
+        max_time = -999999;
+
+        loop(num_notes,
+          idx = i * note_size;
+          display_notes[idx] = chord_notes[idx];
+          display_notes[idx + 1] = chord_notes[idx + 1];
+          display_notes[idx + 2] = chord_notes[idx + 2];
+          sum_time += chord_notes[idx + 1];
+          sum_vel += chord_notes[idx + 2];
+          min_time = min(min_time, chord_notes[idx + 1]);
+          max_time = max(max_time, chord_notes[idx + 1]);
+          display_min_vel = min(display_min_vel, chord_notes[idx + 2]);
+          display_max_vel = max(display_max_vel, chord_notes[idx + 2]);
+          i += 1;
+        );
+
+        display_avg_time = sum_time / num_notes;
+        display_avg_vel = sum_vel / num_notes;
+        display_time_spread = max_time - min_time;
+        display_vel_spread = display_max_vel - display_min_vel;
+        display_until = current_time + slider5;
+      );
+
+      // Start new chord
+      num_notes = 0;
+      chord_start_time = current_time;
+    );
+
+    // Add note to chord (up to 10)
+    num_notes < max_chord_notes ? (
+      idx = num_notes * note_size;
+      chord_notes[idx] = msg2;                              // note number
+      chord_notes[idx + 1] = current_time - chord_start_time; // relative time in ms
+      chord_notes[idx + 2] = msg3;                          // velocity
+      num_notes += 1;
+      last_note_time = current_time;
+    );
+  );
+
+  // Pass through all MIDI
+  midisend(offset, msg1, msg2, msg3);
+);
+
+// Check if current chord should be finalized (timeout)
+num_notes > 1 ? (
+  current_time = get_current_time_ms();
+  (current_time - last_note_time) > slider2 ? (
+    // Finalize chord
+    display_num = num_notes;
+    i = 0;
+    sum_time = 0;
+    sum_vel = 0;
+    display_min_vel = 127;
+    display_max_vel = 0;
+    min_time = 999999;
+    max_time = -999999;
+
+    loop(num_notes,
+      idx = i * note_size;
+      display_notes[idx] = chord_notes[idx];
+      display_notes[idx + 1] = chord_notes[idx + 1];
+      display_notes[idx + 2] = chord_notes[idx + 2];
+      sum_time += chord_notes[idx + 1];
+      sum_vel += chord_notes[idx + 2];
+      min_time = min(min_time, chord_notes[idx + 1]);
+      max_time = max(max_time, chord_notes[idx + 1]);
+      display_min_vel = min(display_min_vel, chord_notes[idx + 2]);
+      display_max_vel = max(display_max_vel, chord_notes[idx + 2]);
+      i += 1;
+    );
+
+    display_avg_time = sum_time / num_notes;
+    display_avg_vel = sum_vel / num_notes;
+    display_time_spread = max_time - min_time;
+    display_vel_spread = display_max_vel - display_min_vel;
+    display_until = current_time + slider5;
+
+    num_notes = 0;
+  );
+);
+
+@gfx 500 400
+gfx_clear = 0;
+
+// Draw background
+gfx_set(0.05, 0.05, 0.1, 1);
+gfx_rect(0, 0, gfx_w, gfx_h);
+
+// Margins
+margin_x = 60;
+margin_y = 40;
+plot_w = gfx_w - margin_x * 2;
+plot_h = gfx_h - margin_y * 2;
+center_x = margin_x + plot_w / 2;
+center_y = margin_y + plot_h / 2;
+
+// Time range
+time_range = slider1;
+
+current_time = get_current_time_ms();
+showing_chord = display_num > 1 && current_time < display_until;
+
+// Calculate velocity range for display
+showing_chord ? (
+  vel_padding = 10;
+  vel_min = max(0, display_min_vel - vel_padding);
+  vel_max = min(127, display_max_vel + vel_padding);
+  vel_range = max(vel_max - vel_min, 20);
+  vel_center = (display_min_vel + display_max_vel) / 2;
+) : (
+  vel_min = 50;
+  vel_max = 100;
+  vel_range = 50;
+  vel_center = 75;
+);
+
+// Draw grid if enabled
+slider6 ? (
+  gfx_set(0.2, 0.2, 0.3, 1);
+
+  // Vertical grid lines (time)
+  i = -4;
+  loop(9,
+    x = center_x + (i * time_range / 4) * plot_w / (2 * time_range);
+    gfx_line(x, margin_y, x, margin_y + plot_h);
+    i += 1;
+  );
+
+  // Horizontal grid lines
+  i = 0;
+  loop(5,
+    y = margin_y + i * plot_h / 4;
+    gfx_line(margin_x, y, margin_x + plot_w, y);
+    i += 1;
+  );
+);
+
+// Draw center crosshair
+gfx_set(0.3, 0.3, 0.4, 1);
+gfx_line(center_x, margin_y, center_x, margin_y + plot_h);
+gfx_line(margin_x, center_y, margin_x + plot_w, center_y);
+
+// Draw "Perfect Zone" box
+perfect_time = slider3;
+perfect_vel = slider4;
+perfect_x1 = center_x - (perfect_time * plot_w / (2 * time_range));
+perfect_x2 = center_x + (perfect_time * plot_w / (2 * time_range));
+perfect_h = (perfect_vel * 2) * plot_h / vel_range;
+perfect_y1 = center_y - perfect_h / 2;
+perfect_y2 = center_y + perfect_h / 2;
+
+gfx_set(0.2, 0.3, 0.5, 0.3);
+gfx_rect(perfect_x1, perfect_y1, perfect_x2 - perfect_x1, perfect_y2 - perfect_y1);
+gfx_set(0.3, 0.5, 0.8, 0.8);
+gfx_rect(perfect_x1, perfect_y1, perfect_x2 - perfect_x1, perfect_y2 - perfect_y1, 0);
+
+// Draw axis labels
+gfx_set(0.7, 0.7, 0.8, 1);
+gfx_setfont(1, "Arial", 14);
+
+// Time axis labels
+gfx_x = margin_x - 10;
+gfx_y = gfx_h - margin_y + 10;
+gfx_drawstr("-");
+gfx_drawnumber(time_range, 0);
+gfx_drawstr("ms");
+
+gfx_x = gfx_w - margin_x - 30;
+gfx_drawstr("+");
+gfx_drawnumber(time_range, 0);
+gfx_drawstr("ms");
+
+// Velocity axis labels
+gfx_x = 5;
+gfx_y = margin_y - 5;
+gfx_drawnumber(vel_max, 0);
+
+gfx_x = 5;
+gfx_y = gfx_h - margin_y - 10;
+gfx_drawnumber(vel_min, 0);
+
+// Draw notes if we have a chord to display
+showing_chord ? (
+  // Calculate quality score (0 = perfect, 1 = worst)
+  time_quality = min(1, display_time_spread / (time_range * 0.5));
+  vel_quality = min(1, display_vel_spread / 40);
+  quality = (time_quality + vel_quality) / 2;
+
+  // Color: blue (good) to red (bad)
+  base_r = quality;
+  base_g = 0.2;
+  base_b = 1 - quality;
+
+  // Draw each note
+  circle_radius = min(30, min(plot_w, plot_h) / 15);
+
+  i = 0;
+  loop(display_num,
+    idx = i * note_size;
+    note_num = display_notes[idx];
+    note_time = display_notes[idx + 1] - display_avg_time; // Center around average
+    note_vel = display_notes[idx + 2];
+
+    // Position
+    x = center_x + (note_time * plot_w / (2 * time_range));
+    y = center_y - ((note_vel - vel_center) * plot_h / vel_range);
+
+    // Clamp to plot area
+    x = max(margin_x + circle_radius, min(margin_x + plot_w - circle_radius, x));
+    y = max(margin_y + circle_radius, min(margin_y + plot_h - circle_radius, y));
+
+    // Unique color per note (hue based on note, saturation/brightness based on quality)
+    hue = (note_num % 12) / 12;
+    hsv_to_rgb(hue, 0.7 + quality * 0.3, 0.9);
+
+    // Mix with quality color
+    final_r = hsv_to_rgb.r * 0.5 + base_r * 0.5;
+    final_g = hsv_to_rgb.g * 0.5 + base_g * 0.5;
+    final_b = hsv_to_rgb.b * 0.5 + base_b * 0.5;
+
+    // Draw circle shadow
+    gfx_set(0, 0, 0, 0.5);
+    gfx_circle(x + 2, y + 2, circle_radius, 1);
+
+    // Draw circle
+    gfx_set(final_r, final_g, final_b, 0.9);
+    gfx_circle(x, y, circle_radius, 1);
+
+    // Draw circle outline
+    gfx_set(1, 1, 1, 0.8);
+    gfx_circle(x, y, circle_radius, 0);
+
+    // Draw note name
+    note_idx = note_num % 12;
+    octave = floor(note_num / 12) - 1;
+
+    gfx_setfont(1, "Arial", 12, 'b');
+    gfx_set(1, 1, 1, 1);
+
+    // Build note string based on note index using proper JSFX string slots
+    note_idx == 0 ? strcpy(#note_str, "C") :
+    note_idx == 1 ? strcpy(#note_str, "C#") :
+    note_idx == 2 ? strcpy(#note_str, "D") :
+    note_idx == 3 ? strcpy(#note_str, "D#") :
+    note_idx == 4 ? strcpy(#note_str, "E") :
+    note_idx == 5 ? strcpy(#note_str, "F") :
+    note_idx == 6 ? strcpy(#note_str, "F#") :
+    note_idx == 7 ? strcpy(#note_str, "G") :
+    note_idx == 8 ? strcpy(#note_str, "G#") :
+    note_idx == 9 ? strcpy(#note_str, "A") :
+    note_idx == 10 ? strcpy(#note_str, "A#") :
+    strcpy(#note_str, "B");
+
+    sprintf(#oct_str, "%d", octave);
+    strcat(#note_str, #oct_str);
+
+    gfx_measurestr(#note_str, str_w, str_h);
+    gfx_x = x - str_w / 2;
+    gfx_y = y - str_h / 2;
+    gfx_drawstr(#note_str);
+
+    i += 1;
+  );
+
+  // Draw stats
+  gfx_setfont(1, "Arial", 14);
+  gfx_set(0.8, 0.8, 0.9, 1);
+
+  gfx_x = 10;
+  gfx_y = 10;
+  gfx_drawstr("Notes: ");
+  gfx_drawnumber(display_num, 0);
+
+  gfx_x = 10;
+  gfx_y = 28;
+  gfx_drawstr("Time spread: ");
+  gfx_drawnumber(display_time_spread, 1);
+  gfx_drawstr(" ms");
+
+  gfx_x = 10;
+  gfx_y = 46;
+  gfx_drawstr("Vel spread: ");
+  gfx_drawnumber(display_vel_spread, 0);
+
+  // Quality indicator
+  gfx_x = gfx_w - 120;
+  gfx_y = 10;
+
+  display_time_spread <= perfect_time * 2 && display_vel_spread <= perfect_vel * 2 ? (
+    gfx_set(0.2, 1, 0.4, 1);
+    gfx_drawstr("PERFECT!");
+  ) : quality < 0.3 ? (
+    gfx_set(0.4, 0.8, 1, 1);
+    gfx_drawstr("Good");
+  ) : quality < 0.6 ? (
+    gfx_set(1, 0.8, 0.2, 1);
+    gfx_drawstr("Fair");
+  ) : (
+    gfx_set(1, 0.3, 0.3, 1);
+    gfx_drawstr("Needs work");
+  );
+
+) : (
+  // No chord - show instructions
+  gfx_setfont(1, "Arial", 16);
+  gfx_set(0.5, 0.5, 0.6, 1);
+
+  gfx_measurestr("Play a chord (2+ notes)", str_w, str_h);
+  gfx_x = center_x - str_w / 2;
+  gfx_y = center_y - str_h / 2;
+  gfx_drawstr("Play a chord (2+ notes)");
+);
+
+// Draw border
+gfx_set(0.4, 0.4, 0.5, 1);
+gfx_rect(margin_x, margin_y, plot_w, plot_h, 0);
