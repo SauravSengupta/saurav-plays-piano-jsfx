@@ -94,4 +94,4 @@ The plugin includes a custom UI that displays:
 
 ## Audio Demo
 
-Here's a short audio [clip](https://sauravplayspiano.com/audio/phrase-maker-lydian.mp3) that shows the plugin in action. There are a lot of active effects, but the piano track was generated using this plugin.
+Here's a short audio [clip](https://sauravplayspiano.com/audio/phrase-maker-humanized.mp3) that shows the plugin in action. There are a lot of active effects, but the piano track was generated using this plugin.

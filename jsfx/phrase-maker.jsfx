@@ -3,7 +3,7 @@ desc: Phrase Maker
 author: Saurav Plays Piano
 about:
   # Phrase Maker
-  A basic generative phrase engine that tries to create melodic phrases based on musical theory.
+  A generative phrase engine that creates melodic phrases based on musical theory. Features chord awareness, humanized timing, and pedal modeling.
 
 // Phrase Maker
 // Copyright (c) 2026 Saurav Plays Piano
