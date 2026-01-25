@@ -10,7 +10,7 @@ A practice tool for pianists and keyboard players to visualize how accurately yo
 - **Chord Window (ms)** (10-200): Maximum gap between notes to be considered part of the same chord
 - **Perfect Zone Time (±ms)** (5-50): Target timing tolerance for "perfect" rating
 - **Perfect Zone Velocity (±)** (1-15): Target velocity tolerance for "perfect" rating
-- **Display Duration (ms)** (500-10000): How long results stay visible after playing
+- **Font Size** (10-30): Adjusts the size of text labels and note circles
 - **Show Grid** (Off/On): Toggle background grid lines
 
 ## How It Works

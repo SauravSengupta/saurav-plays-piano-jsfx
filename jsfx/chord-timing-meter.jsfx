@@ -1,4 +1,4 @@
-version: 1.0.0
+version: 1.0.1
 desc: Chord Timing Meter
 author: Saurav Plays Piano
 about:
@@ -9,7 +9,7 @@ slider1:200<50,500,10>Time Range (±ms)
 slider2:50<10,200,5>Chord Window (ms)
 slider3:20<5,50,1>Perfect Zone Time (±ms)
 slider4:5<1,15,1>Perfect Zone Velocity (±)
-slider5:3000<500,10000,100>Display Duration (ms)
+slider5:14<10,30,1>Font Size
 slider6:0<0,1,1{Off,On}>Show Grid
 
 @init
@@ -23,7 +23,6 @@ num_notes = 0;
 chord_start_time = 0;
 chord_active = 0;
 last_note_time = 0;
-display_until = 0;
 
 // Note names
 note_names = 100;
@@ -129,7 +128,6 @@ while (midirecv(offset, msg1, msg2, msg3)) (
         display_avg_vel = sum_vel / num_notes;
         display_time_spread = max_time - min_time;
         display_vel_spread = display_max_vel - display_min_vel;
-        display_until = current_time + slider5;
       );
 
       // Start new chord
@@ -184,7 +182,6 @@ num_notes > 1 ? (
     display_avg_vel = sum_vel / num_notes;
     display_time_spread = max_time - min_time;
     display_vel_spread = display_max_vel - display_min_vel;
-    display_until = current_time + slider5;
 
     num_notes = 0;
   );
@@ -209,7 +206,7 @@ center_y = margin_y + plot_h / 2;
 time_range = slider1;
 
 current_time = get_current_time_ms();
-showing_chord = display_num > 1 && current_time < display_until;
+showing_chord = display_num > 1;
 
 // Calculate velocity range for display
 showing_chord ? (
@@ -267,7 +264,7 @@ gfx_rect(perfect_x1, perfect_y1, perfect_x2 - perfect_x1, perfect_y2 - perfect_y
 
 // Draw axis labels
 gfx_set(0.7, 0.7, 0.8, 1);
-gfx_setfont(1, "Arial", 14);
+gfx_setfont(1, "Arial", slider5);
 
 // Time axis labels
 gfx_x = margin_x - 10;
@@ -282,11 +279,11 @@ gfx_drawnumber(time_range, 0);
 gfx_drawstr("ms");
 
 // Velocity axis labels
-gfx_x = 5;
+gfx_x = gfx_w - margin_x + 5;
 gfx_y = margin_y - 5;
 gfx_drawnumber(vel_max, 0);
 
-gfx_x = 5;
+gfx_x = gfx_w - margin_x + 5;
 gfx_y = gfx_h - margin_y - 10;
 gfx_drawnumber(vel_min, 0);
 
@@ -303,7 +300,7 @@ showing_chord ? (
   base_b = 1 - quality;
 
   // Draw each note
-  circle_radius = min(30, min(plot_w, plot_h) / 15);
+  circle_radius = max(min(30, min(plot_w, plot_h) / 15), slider5);
 
   i = 0;
   loop(display_num,
@@ -345,7 +342,7 @@ showing_chord ? (
     note_idx = note_num % 12;
     octave = floor(note_num / 12) - 1;
 
-    gfx_setfont(1, "Arial", 12, 'b');
+    gfx_setfont(1, "Arial", max(10, slider5 - 2), 'b');
     gfx_set(1, 1, 1, 1);
 
     // Build note string based on note index using proper JSFX string slots
@@ -374,7 +371,7 @@ showing_chord ? (
   );
 
   // Draw stats
-  gfx_setfont(1, "Arial", 14);
+  gfx_setfont(1, "Arial", slider5);
   gfx_set(0.8, 0.8, 0.9, 1);
 
   gfx_x = 10;
@@ -413,7 +410,7 @@ showing_chord ? (
 
 ) : (
   // No chord - show instructions
-  gfx_setfont(1, "Arial", 16);
+  gfx_setfont(1, "Arial", slider5 + 2);
   gfx_set(0.5, 0.5, 0.6, 1);
 
   gfx_measurestr("Play a chord (2+ notes)", str_w, str_h);
