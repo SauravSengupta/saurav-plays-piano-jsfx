@@ -4,15 +4,15 @@ A collection of custom JSFX plugins for **Reaper**, designed and developed by [S
 
 This is a collection of Reaper plugins I wrote to help me with some of my ambient / neo-classical piano productions. I am releasing them as open-source for other Reaper users to explore, modify, and use in their own creative work.
 
-> ⚠️ **Note:** This repository is currently in **Alpha**. The code is experimental, parameters may change. Use with caution in critical projects.
+> **Note:** Plugins marked with ⚠️ are under development. The code is experimental, parameters may change. Use with caution in critical projects.
 
 ## The Plugins
 
 | Plugin | Description |
 |--------|-------------|
-| [MIDI Note Dropper](docs/midi-note-dropper.md) | Randomly drop notes for thinning patterns and adding controlled chaos |
-| [Phrase Maker](docs/phrase-maker.md) | Generative melody engine with chord awareness and piano roll visualization |
 | [Chord Timing Meter](docs/chord-timing-meter.md) | Practice tool to visualize chord timing and velocity accuracy |
+| [MIDI Note Dropper](docs/midi-note-dropper.md) | Randomly drop notes for thinning patterns and adding controlled chaos |
+| [Phrase Maker](docs/phrase-maker.md) ⚠️ | Generative melody engine with chord awareness and piano roll visualization |
 
 ## Installation
 
