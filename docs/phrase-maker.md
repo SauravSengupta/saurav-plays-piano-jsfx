@@ -27,21 +27,23 @@ If music theory isn't your strong suit, you may find this helpful to create some
 
 ### Phrase Settings
 
-- **Min Phrase Length** (2-8): Shortest phrase length in notes
-- **Max Phrase Length** (3-20): Longest phrase length in notes
+- **Min Phrase Length** (4-12): Shortest phrase length in notes
+- **Max Phrase Length** (12-24): Longest phrase length in notes
+- **Density** (0.0-1.0): Controls the rhythmic density. Lower values introduce more rests; higher values create busier phrases.
 
 ### Progression Sequencer
 
 - **Loop Length** (1-8): Number of chords in the loop
 - **Prog Chords 1-4** (I-vi, II): Define your chord progression (includes Major II)
 - **Measures Per Chord** (1-8): Duration of each chord
-- **Continuous Mode** (Off/On): When enabled, minimizes rests between phrases for a continuous flow
 - **Playback Speed** (0.5x - 8x): Scales the playback speed relative to the project tempo
 
 ### Performance
 
 - **Min Velocity** (1-127): Minimum MIDI velocity for generated notes
 - **Max Velocity** (1-127): Maximum MIDI velocity (random between min/max)
+- **Humanize Timing** (0.0-1.0): Adds random timing variations to simulate human playing
+- **Chord Voicing** (0.0-1.0): Probability of adding harmony notes (3rds) to chord tones
 - **Sustain Pedal Modeling** (Off/On): Intelligent sustain pedal automation. It holds the pedal for chord tones to create resonance, but automatically lifts and re-pedals when non-chord tones create too much harmonic dissonance ("mud").
 
 ### System
@@ -88,7 +90,7 @@ The plugin includes a custom UI that displays:
 ### Timing Model
 
 - Notes are scheduled on an 8th-note grid; phrases advance by 8ths and align back to quarter-note boundaries when needed
-- After a phrase finishes, the plugin inserts a short rest (in quarter notes) before starting the next phrase (unless Continuous Mode is enabled)
+- After a phrase finishes, the plugin inserts a short rest (in quarter notes) before starting the next phrase
 
 ## Audio Demo
 

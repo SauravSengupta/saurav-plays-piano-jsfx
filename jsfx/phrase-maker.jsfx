@@ -1,4 +1,4 @@
-version: 1.0.4
+version: 1.0.5
 desc: Phrase Maker
 author: Saurav Plays Piano
 about:
@@ -18,29 +18,30 @@ slider3:3<0,5,1{C1,C2,C3,C4,C5,C6}>Base Octave
 slider4:2<1,4,1>Octave Range
 
 // === PHRASE SETTINGS ===
-slider5:6<2,12,1>Min Phrase Length
-slider6:16<3,24,1>Max Phrase Length
-slider7:0.4<0,1,0.05>-Density (sparse to busy)
-slider8:0.5<0,1,0.05>-8th Note Amount
+slider5:6<4,12,1>Min Phrase Length
+slider6:16<12,24,1>Max Phrase Length
+slider7:0.4<0,1,0.05>Density (sparse to busy)
 
 // === PROGRESSION SEQUENCER ===
-slider9:4<1,8,1>Loop Length (# of chords)
-slider10:0<0,6,1{I,ii,iii,IV,V,vi,II}>Prog Chord 1
-slider11:4<0,6,1{I,ii,iii,IV,V,vi,II}>Prog Chord 2
-slider12:5<0,6,1{I,ii,iii,IV,V,vi,II}>Prog Chord 3
-slider13:3<0,6,1{I,ii,iii,IV,V,vi,II}>Prog Chord 4
-slider14:4<1,8,1>Measures Per Chord
-slider15:1<0,1,{Off,On}>Continuous Mode
-slider16:1<0,4,1{Half (0.5x),Normal (1x),Double (2x),Quad (4x),Oct (8x)}>Playback Speed
+slider8:4<1,8,1>Loop Length (# of chords)
+slider9:0<0,6,1{I,ii,iii,IV,V,vi,II}>Prog Chord 1
+slider10:4<0,6,1{I,ii,iii,IV,V,vi,II}>Prog Chord 2
+slider11:5<0,6,1{I,ii,iii,IV,V,vi,II}>Prog Chord 3
+slider12:3<0,6,1{I,ii,iii,IV,V,vi,II}>Prog Chord 4
+slider13:4<1,8,1>Measures Per Chord
+slider14:0<0,1,{Off,On}>-Continuous Mode
+slider15:1<0,4,1{Half (0.5x),Normal (1x),Double (2x),Quad (4x),Oct (8x)}>Playback Speed
 
 // === PERFORMANCE ===
-slider17:40<1,127,1>Min Velocity
-slider18:80<1,127,1>Max Velocity
-slider19:1<0,1,{Off,On}>Sustain Pedal Modeling
+slider16:60<1,127,1>Min Velocity
+slider17:100<1,127,1>Max Velocity
+slider18:0.5<0,1,0.05>Humanize Timing
+slider19:0.1<0,1,0.05>Chord Voicing
+slider20:1<0,1,{Off,On}>Sustain Pedal Modeling
 
 // === SYSTEM ===
-slider20:1<0,1,{Off,On}>Enable Generation
-slider21:0<0,127,1>MIDI Channel (0=all)
+slider21:1<0,1,{Off,On}>Enable Generation
+slider22:0<0,16,1{Omni,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>MIDI Channel
 
 in_pin:none
 out_pin:none
@@ -51,18 +52,16 @@ out_pin:none
 // ============================================
 
 // Weight constants for note selection
-CHORD_ROOT_WEIGHT = 50;   // Root - Grounding (lowered slightly to reduce finality)
+CHORD_ROOT_WEIGHT = 80;   // Root - Grounding (lowered slightly to reduce finality)
 CHORD_FIFTH_WEIGHT = 35;  // 5th - Open/Spacious (Boosted for ambient feel)
-CHORD_SEVENTH_WEIGHT = 20;// 7th - Floating/Unresolved (New)
+CHORD_SEVENTH_WEIGHT = 10;// 7th - Floating/Unresolved (New)
 CHORD_THIRD_WEIGHT = 10;  // 3rd - Emotional definition (Lowered for background)
 SCALE_TONE_WEIGHT = 4;    // Non-chord scale degrees
 PASSING_TONE_WEIGHT = 1;  // Chromatic passing tones
 
 // Probability constants
-PASSING_TONE_PROB_ENABLED = 0.12;  // Chance to insert chromatic passing tone
 REPEAT_CHORD_PROB = 0.15;          // Chance to repeat previous chord tone
 REPEAT_SCALE_PROB = 0.08;          // Chance to repeat previous scale tone
-REPEAT_PASSING_PROB = 0.03;        // Chance to repeat previous passing tone
 INNER_REST_BASE = 0.6;             // Base inner rest probability scale at low density
 
 // Phrase movement constants (controls note-to-note stepping behavior)
@@ -83,10 +82,10 @@ SOFT_BOUNDARY_EXTENSION = 2;       // Semitones to extend beyond octave range fo
 
 // Rest behavior constants (controls between-phrase rest lengths)
 // These are in quarter notes (decremented once per beat_num change)
-REST_MAX_BASE = 4;      // Base max rest at low density
-REST_MIN_BASE = 2;      // Base min rest at low density
+REST_MAX_BASE = 2;      // Base max rest at low density
+REST_MIN_BASE = 1;      // Base min rest at low density
 REST_MIN_FLOOR = 1;     // Absolute minimum rest
-REST_MAX_CEILING = 8;   // Maximum allowed rest
+REST_MAX_CEILING = 4;   // Maximum allowed rest
 
 // Chord tone sustain constants
 SUSTAIN_ROOT_PROB = 0.80;      // Probability root gets extended
@@ -104,6 +103,16 @@ PEDAL_DISSONANCE_THRESHOLD = 1.2;  // Accumulated mud before pedal lifts
 PEDAL_CHORD_TONE_CLEAR = 0.3;      // How much chord tones reduce mud
 PEDAL_SCALE_TONE_MUD = 0.5;        // How much scale tones add mud
 PEDAL_PASSING_TONE_MUD = 0.8;      // How much passing tones add mud
+
+// Humanization constants (timing feel)
+HUMANIZE_MAX_MS = 25;              // Maximum timing offset in milliseconds
+HUMANIZE_VEL_CORRELATION = 0.7;    // How much velocity affects timing (0-1)
+HUMANIZE_DURATION_VAR = 0.3;       // Duration variation factor (0-1)
+HUMANIZE_STACCATO_PROB = 0.15;     // Probability of staccato articulation
+
+// Chord voicing constants (harmony notes)
+HARMONY_TIMING_OFFSET_MS = 5;      // Slight delay for harmony note (ms)
+HARMONY_VEL_REDUCTION = 0.85;      // Velocity multiplier for harmony (softer)
 
 // ============================================
 // MEMORY LAYOUT - SCALE DEFINITIONS
@@ -159,6 +168,7 @@ note_history_idx = 0;     // Current ring buffer index
 // Playback state
 note_playing = 0;
 last_eighth = -1;  // Last 8th-note boundary processed
+last_phrase_end_velocity = -1;
 
 // Phrase generation state
 phrase_active = 0;              // Are we currently in a phrase?
@@ -218,6 +228,22 @@ phrase_pedal = 1700;          // Pedal state at each slot (1 = down, 0 = up)
 pedal_down = 0;               // Current pedal state during playback
 harmonic_mud = 0;             // Accumulated dissonance for pedal decisions
 last_pedal_modeling = -1;     // Track pedal modeling slider changes
+
+// Humanization arrays (timing feel)
+phrase_timing_offset = 1800;  // Sample offset for each slot (delay in samples)
+phrase_duration_mod = 1880;   // Duration modification factor per slot (0-1 scale)
+
+// Pending notes queue (for humanization delays beyond block size)
+pending_note_pitch = 1960;    // MIDI note numbers waiting to be sent
+pending_note_vel = 2040;      // Velocities for pending notes
+pending_note_sample = 2120;   // Absolute sample position when each should play
+pending_note_is_harmony = 2200; // 1 if harmony note, 0 if main note
+pending_note_count = 0;       // Number of notes in queue
+current_sample_pos = 0;       // Absolute sample position tracker
+
+// Chord voicing arrays (harmony notes)
+phrase_harmony_note = 2280;   // Harmony note for each slot (0 = none)
+harmony_note_playing = 0;     // Currently playing harmony note
 
 // ============================================
 // SCALE & CHORD FUNCTIONS
@@ -458,7 +484,7 @@ function add_to_held_notes(midi_note, end_eighth) local(i, oldest_idx, oldest_en
       i += 1;
     );
     // Send note-off for oldest
-    midisend(0, $x80 + (slider21 > 0 ? slider21 - 1 : 0), held_notes[oldest_idx], 0);
+    midisend(0, $x80 + (slider22 > 0 ? slider22 - 1 : 0), held_notes[oldest_idx], 0);
     // Shift remaining notes down
     i = oldest_idx;
     loop(held_count - oldest_idx - 1,
@@ -496,7 +522,7 @@ function check_and_release_held_notes(current_eighth) local(i, j, released) (
     loop(held_count,
       (!released && held_note_end_slots[i] <= current_eighth) ? (
         // Send note-off
-        midisend(0, $x80 + (slider21 > 0 ? slider21 - 1 : 0), held_notes[i], 0);
+        midisend(0, $x80 + (slider22 > 0 ? slider22 - 1 : 0), held_notes[i], 0);
         // Shift remaining notes down
         j = i;
         loop(held_count - i - 1,
@@ -516,7 +542,7 @@ function check_and_release_held_notes(current_eighth) local(i, j, released) (
 function release_all_held_notes() local(i) (
   i = 0;
   loop(held_count,
-    midisend(0, $x80 + (slider21 > 0 ? slider21 - 1 : 0), held_notes[i], 0);
+    midisend(0, $x80 + (slider22 > 0 ? slider22 - 1 : 0), held_notes[i], 0);
     i += 1;
   );
   held_count = 0;
@@ -528,14 +554,14 @@ function release_all_held_notes() local(i) (
 
 function send_pedal_on() (
   !pedal_down ? (
-    midisend(0, $xB0 + (slider21 > 0 ? slider21 - 1 : 0), 64, 127);
+    midisend(0, $xB0 + (slider22 > 0 ? slider22 - 1 : 0), 64, 127);
     pedal_down = 1;
   );
 );
 
 function send_pedal_off() (
   pedal_down ? (
-    midisend(0, $xB0 + (slider21 > 0 ? slider21 - 1 : 0), 64, 0);
+    midisend(0, $xB0 + (slider22 > 0 ? slider22 - 1 : 0), 64, 0);
     pedal_down = 0;
   );
 );
@@ -547,11 +573,14 @@ function send_pedal_off() (
 // Schedule phrase_notes into phrase_events timeline
 // Applies timing (8th notes), inner rests, calculates velocities, and schedules sustain/pedal
 function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
-    density, eighth_prob, inner_rest_prob, rest_scale, base_inner_rest,
+    density, inner_rest_prob, rest_scale, base_inner_rest,
     rest_weight, rest_multiplier, rest_emphasis, velocity, vel_range,
     sparse_boost, min_rest, max_rest, original_chord_idx, switched_context,
     current_beat_time, note_class, chord_tone_idx, sustain_prob, position_factor,
-    density_factor, max_extension, extension_slots, sched_mud) (
+    density_factor, max_extension, extension_slots, sched_mud,
+    humanize, base_offset_ms, vel_normalized, vel_timing_shift, timing_offset_ms,
+    duration_mod, chord_voicing, harmony_note, harmony_interval,
+    start_slot, duration_slots, effective_voicing) (
 
   // Clear the events array
   slot = 0;
@@ -560,6 +589,9 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
     phrase_velocities[slot] = 0;
     phrase_note_offs[slot] = -1;  // -1 = release when next note starts
     phrase_pedal[slot] = 1;       // Default pedal down
+    phrase_timing_offset[slot] = 0;  // No timing offset
+    phrase_duration_mod[slot] = 1.0; // Full duration (1.0 = 100%)
+    phrase_harmony_note[slot] = 0;   // No harmony note
     slot += 1;
   );
 
@@ -568,13 +600,7 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
 
   // Get parameters
   density = max(0, min(1, slider7));
-  eighth_prob = slider8;
-  vel_range = slider18 - slider17;
-
-  // Calculate inner rest probability (same formula as before)
-  rest_scale = 1 - density;
-  base_inner_rest = INNER_REST_BASE * rest_scale * sqrt(rest_scale) * 1.6;
-  base_inner_rest = min(1, base_inner_rest);
+  vel_range = slider17 - slider16;
 
   // Store original context to restore later
   original_chord_idx = current_chord_idx;
@@ -611,23 +637,94 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
       note_diff > 0 ? (
         // Upward phrase: increase velocity incrementally
         velocity = phrase_velocities[slot - 1] + 3 + rand() * 2;
-        velocity = max(slider17, min(slider18, velocity));
+        velocity = max(slider16, min(slider17, velocity));
       ) : note_diff < 0 ? (
         // Downward phrase: decrease velocity incrementally
         velocity = phrase_velocities[slot - 1] - 3 - rand() * 2;
-        velocity = max(slider17, min(slider18, velocity));
+        velocity = max(slider16, min(slider17, velocity));
       ) : (
         // Repeated note: maintain velocity with slight variation
         velocity = phrase_velocities[slot - 1] + (rand() * 4 - 2);
-        velocity = max(slider17, min(slider18, velocity));
+        velocity = max(slider16, min(slider17, velocity));
       );
     ) : (
-      velocity = slider17 + rand() * vel_range;
+      last_phrase_end_velocity > 0 ? (
+        velocity = last_phrase_end_velocity + (rand() * 30 - 15);
+        velocity = max(slider16, min(slider17, velocity));
+      ) : (
+        velocity = slider16 + rand() * vel_range;
+      );
     );
     phrase_velocities[slot] = max(1, min(127, floor(velocity)));
 
+    // === CHORD VOICING (harmony notes) ===
+    chord_voicing = slider19;
+    chord_voicing > 0 ? (
+      note_class = note % 12;
+      chord_tone_idx = get_chord_tone_index(note_class);
+
+      // Only add harmony for chord tones, based on probability
+      (chord_tone_idx >= 0 && rand() < chord_voicing) ? (
+        // Pick harmony interval: 3rd only (3-4 semitones up or down)
+        harmony_interval = 3 + floor(rand() * 2);  // 3-4 semitones
+
+        // Calculate harmony note (try up first)
+        harmony_note = note + harmony_interval;
+        harmony_note = max(0, min(127, harmony_note));
+
+        // Verify it's still a chord tone (within an octave)
+        (harmony_note % 12) == current_chord_tones[0] ||
+        (harmony_note % 12) == current_chord_tones[1] ||
+        (harmony_note % 12) == current_chord_tones[2] ||
+        (harmony_note % 12) == current_chord_tones[3] ? (
+          phrase_harmony_note[slot] = harmony_note;
+        ) : (
+          // Try a 3rd down instead
+          harmony_note = note - 3 - floor(rand() * 2);
+          harmony_note = max(0, min(127, harmony_note));
+          (harmony_note % 12) == current_chord_tones[0] ||
+          (harmony_note % 12) == current_chord_tones[1] ||
+          (harmony_note % 12) == current_chord_tones[2] ||
+          (harmony_note % 12) == current_chord_tones[3] ? (
+            phrase_harmony_note[slot] = harmony_note;
+          );
+        );
+      );
+    );
+
+    // === HUMANIZATION (timing feel) ===
+    humanize = slider18;
+    humanize > 0 ? (
+      // Base timing offset: random variation scaled by humanize amount
+      base_offset_ms = (rand() * 2 - 1) * HUMANIZE_MAX_MS * humanize;
+
+      // Velocity correlation: softer notes arrive later, louder notes on-beat
+      vel_normalized = (velocity - slider16) / max(1, vel_range);  // 0 to 1
+      vel_timing_shift = (1 - vel_normalized) * HUMANIZE_VEL_CORRELATION * HUMANIZE_MAX_MS * humanize;
+
+      // Combine offsets (keep positive = delay only for musical feel)
+      timing_offset_ms = base_offset_ms + vel_timing_shift;
+      timing_offset_ms = max(0, min(HUMANIZE_MAX_MS * 2, timing_offset_ms));
+
+      // Convert ms to samples
+      phrase_timing_offset[slot] = floor(timing_offset_ms * srate / 1000);
+
+      // Duration variation
+      rand() < (HUMANIZE_STACCATO_PROB * humanize) ? (
+        // Staccato: 40-70% of full duration
+        phrase_duration_mod[slot] = 0.4 + rand() * 0.3;
+      ) : (
+        // Normal variation: 85-115% of full duration
+        duration_mod = 1.0 + (rand() * 2 - 1) * HUMANIZE_DURATION_VAR * humanize;
+        phrase_duration_mod[slot] = max(0.5, min(1.15, duration_mod));
+      );
+    ) : (
+      phrase_timing_offset[slot] = 0;
+      phrase_duration_mod[slot] = 1.0;
+    );
+
     // === CHORD TONE EXTENSION & PEDAL LOGIC (only when pedal modeling enabled) ===
-    slider19 == 1 ? (
+    slider20 == 1 ? (
       note_class = note % 12;
       chord_tone_idx = get_chord_tone_index(note_class);
 
@@ -701,24 +798,29 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
     rest_multiplier = rest_weight / CHORD_ROOT_WEIGHT;
     rest_emphasis = 0.5 + rest_multiplier * 1.5;  // Root=2.0, Fifth=1.125, Third=0.75, Scale=0.6, Passing=0.525
 
+    start_slot = slot;
+
     // Decide timing for next note based on note importance and density
-    (i < phrase_length - 1) ? (
+    (i < phrase_length - 1 && slot < 70) ? (
       // Higher rest_emphasis = longer gap after this note
-      rand() < (eighth_prob * (1.0 / rest_emphasis)) ? (
+      rand() < (density * (1.0 / max(0.75, rest_emphasis))) ? (
         // Next note comes as 8th note (next slot) - less likely for important notes
         slot += 1;
       ) : (
         // Next note on quarter boundary (skip to even slot)
-        // LEGATO: Fill the gap with the same note but mark velocity as -1 (Sustain)
-        phrase_events[slot + 1] = note;
-        phrase_velocities[slot + 1] = -1;
+        // LEGATO vs REST: High density = Sustain (Legato), Low density = Rest (Silence)
+        rand() < density ? (
+          phrase_events[slot + 1] = note;
+          phrase_velocities[slot + 1] = -1;
+        );
         
         slot += 1;
         (slot % 2 == 1) ? slot += 1;  // Ensure even slot for quarter note
         
-        // For very important notes (root/fifth), add extra gap at sparse densities
-        (rest_emphasis > 1.5 && density < 0.5 && rand() < (rest_emphasis - 1.0)) ? (
-          // If adding extra rest, clear the sustain we just added
+        // Insert extra rest space based on density (inverse relationship)
+        // Lower density = higher chance of gaps between notes. Scale by rest_emphasis.
+        (rand() < (1.0 - density) * rest_emphasis * 0.6) ? (
+          // If adding extra rest, clear the sustain we just added (if any)
           phrase_events[slot - 1] = 0;
           phrase_velocities[slot - 1] = 0;
           
@@ -727,8 +829,73 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
       );
     );
 
+    // Last note logic: Extend duration for better resolution
+    (i == phrase_length - 1) ? (
+      // Default to Quarter Note (2 slots)
+      (slot < 63) ? (
+        phrase_events[slot + 1] = note;
+        phrase_velocities[slot + 1] = -1; // Sustain
+        slot += 1;
+        max_slot_used = max(max_slot_used, slot);
+        
+        // If stable note (Root/5th), extend to Half Note (4 slots)
+        (rest_emphasis > 1.1 && slot < 62) ? (
+          phrase_events[slot + 1] = note;
+          phrase_velocities[slot + 1] = -1;
+          phrase_events[slot + 2] = note;
+          phrase_velocities[slot + 2] = -1;
+          slot += 2;
+          max_slot_used = max(max_slot_used, slot);
+        );
+      );
+    );
+
+    // === CHORD VOICING (harmony notes) ===
+    // Moved here to base probability on note duration
+    duration_slots = slot - start_slot;
+    chord_voicing = slider19;
+    chord_voicing > 0 ? (
+      // Boost probability for longer notes (duration >= 2 slots / Quarter note)
+      // Reduce for short passing notes
+      effective_voicing = (duration_slots >= 2) ? min(1.0, chord_voicing * 1.5 + 0.1) : (chord_voicing * 0.5);
+
+      note_class = note % 12;
+      chord_tone_idx = get_chord_tone_index(note_class);
+
+      // Only add harmony for chord tones, based on probability
+      (chord_tone_idx >= 0 && rand() < effective_voicing) ? (
+        // Pick harmony interval: 3rd only (3-4 semitones up or down)
+        harmony_interval = 3 + floor(rand() * 2);  // 3-4 semitones
+
+        // Calculate harmony note (try up first)
+        harmony_note = note + harmony_interval;
+        harmony_note = max(0, min(127, harmony_note));
+
+        // Verify it's still a chord tone (within an octave)
+        (harmony_note % 12) == current_chord_tones[0] ||
+        (harmony_note % 12) == current_chord_tones[1] ||
+        (harmony_note % 12) == current_chord_tones[2] ||
+        (harmony_note % 12) == current_chord_tones[3] ? (
+          phrase_harmony_note[start_slot] = harmony_note;
+        ) : (
+          // Try a 3rd down instead
+          harmony_note = note - 3 - floor(rand() * 2);
+          harmony_note = max(0, min(127, harmony_note));
+          (harmony_note % 12) == current_chord_tones[0] ||
+          (harmony_note % 12) == current_chord_tones[1] ||
+          (harmony_note % 12) == current_chord_tones[2] ||
+          (harmony_note % 12) == current_chord_tones[3] ? (
+            phrase_harmony_note[start_slot] = harmony_note;
+          );
+        );
+      );
+    );
+
     i += 1;
   );
+
+  // Store final velocity for next phrase continuity
+  last_phrase_end_velocity = velocity;
 
   // Restore original context if we switched
   switched_context ? (
@@ -740,7 +907,7 @@ function schedule_phrase_events() local(i, slot, note, prev_note, note_diff,
   phrase_slot_count = max_slot_used + 1;
 
   // Calculate rest after this phrase (in 8th notes since countdown is now per-8th)
-  slider15 == 1 ? (
+  slider14 == 1 ? (
     // Continuous mode: minimal rest (0-1 eighth notes) to match inner phrase timing
     phrase_rest_after = floor(rand() * 2);
   ) : (
@@ -784,7 +951,7 @@ function bias_phrase_end_to_downbeat() local(i, last_slot, slot_idx, note, vel,
         desired_slot = floor(desired_rel_beats * 2 + 0.5);
         desired_slot = max(0, min(63, desired_slot));
 
-        (desired_slot != last_slot) ? (
+        (desired_slot != last_slot && phrase_velocities[last_slot] != -1) ? (
           note = phrase_events[last_slot];
           vel = phrase_velocities[last_slot];
           phrase_events[last_slot] = 0;
@@ -793,7 +960,7 @@ function bias_phrase_end_to_downbeat() local(i, last_slot, slot_idx, note, vel,
           phrase_velocities[desired_slot] = vel;
           phrase_slot_count = max(phrase_slot_count, desired_slot + 1);
           // Increase rest after phrase to emphasize the downbeat landing
-          slider15 == 0 ? (
+          slider14 == 0 ? (
             phrase_rest_after += DOWNBEAT_REST_BONUS;
           );
         );
@@ -1348,14 +1515,14 @@ function build_phrase_from_endpoint() local(max_phrase, min_phrase, direction, t
   // If targeting next chord, temporarily switch context
   target_next_chord ? (
     saved_chord_idx = current_chord_idx;
-    next_chord_idx = (prog_chord_index + 1) % slider9;
+    next_chord_idx = (prog_chord_index + 1) % slider8;
     current_chord_idx = prog_chords[next_chord_idx];
     build_chord_tones();
   );
   
   // Prepare scheduling context globals
   sched_target_next_chord = target_next_chord;
-  sched_next_chord_idx = prog_chords[(prog_chord_index + 1) % slider9];  // Store chord VALUE, not index
+  sched_next_chord_idx = prog_chords[(prog_chord_index + 1) % slider8];  // Store chord VALUE, not index
   sched_boundary_beats = prog_beats_until_change;
 
   valid_endpoint = pick_and_validate_endpoint();
@@ -1415,11 +1582,8 @@ function add_phrase_to_viz() local(i, note, start_time, vel, duration, offset) (
 
     // Only process note starts (velocity > 0). Ignore sustains (-1) and rests (0).
     (note > 0 && vel > 0) ? (
-      // Note: phrase_slot_index increments on eighth-note boundaries, so slot 0 plays
-      // when we ENTER the eighth, but the viz was recording at the eighth START.
-      // The actual MIDI triggers when current_eighth changes, which can be up to
-      // one eighth into the slot. Adjust by 0.5 to align visual with audio.
-      start_time = phrase_start_beat + (i * 0.5) + 0.5;
+      // Note plays when current_eighth boundary is crossed (at phrase_start_beat + slot * 0.5)
+      start_time = phrase_start_beat + (i * 0.5);
       duration = 0.5;
 
       // Look ahead for sustains (velocity == -1) to combine into one block
@@ -1442,40 +1606,124 @@ function add_phrase_to_viz() local(i, note, start_time, vel, duration, offset) (
 // MIDI OUTPUT FUNCTIONS
 // ============================================
 
-function send_note_on(note, vel) (
-  midisend(0, $x90 + (slider21 > 0 ? slider21 - 1 : 0), note, vel);
+function send_note_on(note, vel, timing_offset) (
+  midisend(timing_offset, $x90 + (slider22 > 0 ? slider22 - 1 : 0), note, vel);
   note_playing = note;
 );
 
-function send_note_off() (
+function send_note_off(offset) (
   note_playing > 0 ? (
-    midisend(0, $x80 + (slider21 > 0 ? slider21 - 1 : 0), note_playing, 0);
+    midisend(offset, $x80 + (slider22 > 0 ? slider22 - 1 : 0), note_playing, 0);
     note_playing = 0;
   );
+);
+
+function send_harmony_note_off(offset) (
+  harmony_note_playing > 0 ? (
+    midisend(offset, $x80 + (slider22 > 0 ? slider22 - 1 : 0), harmony_note_playing, 0);
+    harmony_note_playing = 0;
+  );
+);
+
+// Queue a note to be sent at an absolute sample position
+// is_harmony: 0 = main note, 1 = harmony note
+function queue_pending_note(note, vel, target_sample, is_harmony) (
+  pending_note_count < 16 ? (  // Max 16 pending notes
+    pending_note_pitch[pending_note_count] = note;
+    pending_note_vel[pending_note_count] = vel;
+    pending_note_sample[pending_note_count] = target_sample;
+    pending_note_is_harmony[pending_note_count] = is_harmony;
+    pending_note_count += 1;
+  );
+);
+
+// Process any pending notes that should play in this block
+function process_pending_notes() local(i, j, offset, block_end, is_harm) (
+  block_end = current_sample_pos + samplesblock;
+
+  i = 0;
+  while (i < pending_note_count) (
+    // Check if this note should play within this block
+    (pending_note_sample[i] >= current_sample_pos && pending_note_sample[i] < block_end) ? (
+      // Calculate offset within this block
+      offset = pending_note_sample[i] - current_sample_pos;
+      offset = max(0, min(samplesblock - 1, offset));
+
+      // Send note-off for previous note of same type before playing new one
+      is_harm = pending_note_is_harmony[i];
+      is_harm ? (
+        // Turn off previous harmony note first
+        harmony_note_playing > 0 ? (
+          midisend(offset > 0 ? offset - 1 : 0, $x80 + (slider23 > 0 ? slider23 - 1 : 0), harmony_note_playing, 0);
+        );
+      ) : (
+        // Turn off previous main note first (if not held)
+        note_playing > 0 && !is_being_held(note_playing) ? (
+          midisend(offset > 0 ? offset - 1 : 0, $x80 + (slider23 > 0 ? slider23 - 1 : 0), note_playing, 0);
+        );
+      );
+
+      // Send the note-on
+      midisend(offset, $x90 + (slider23 > 0 ? slider23 - 1 : 0),
+               pending_note_pitch[i], pending_note_vel[i]);
+
+      // Track in correct variable based on note type
+      is_harm ? (
+        harmony_note_playing = pending_note_pitch[i];
+      ) : (
+        note_playing = pending_note_pitch[i];
+      );
+
+      // Remove from queue by shifting remaining notes down
+      j = i;
+      while (j < pending_note_count - 1) (
+        pending_note_pitch[j] = pending_note_pitch[j + 1];
+        pending_note_vel[j] = pending_note_vel[j + 1];
+        pending_note_sample[j] = pending_note_sample[j + 1];
+        pending_note_is_harmony[j] = pending_note_is_harmony[j + 1];
+        j += 1;
+      );
+      pending_note_count -= 1;
+      // Don't increment i since we shifted the array
+    ) : (
+      i += 1;
+    );
+  );
+);
+
+// Clear all pending notes (for seek/stop)
+function clear_pending_notes() (
+  pending_note_count = 0;
 );
 
 @slider
 build_scale();
 
 // Update progression chords from sliders
-prog_chords[0] = slider10;
-prog_chords[1] = slider11;
-prog_chords[2] = slider12;
-prog_chords[3] = slider13;
+prog_chords[0] = slider9;
+prog_chords[1] = slider10;
+prog_chords[2] = slider11;
+prog_chords[3] = slider12;
 
 build_chord_tones();
 
 @block
 // ============================================
+// HUMANIZATION: Process any pending delayed notes
+// ============================================
+process_pending_notes();
+
+// ============================================
 // PROGRESSION SEQUENCER
 // ============================================
   // Calculate speed multiplier
-  speed_mult = (slider16 == 0) ? 0.5 : (slider16 == 1) ? 1.0 : (slider16 == 2) ? 2.0 : (slider16 == 3) ? 4.0 : 8.0;
+  speed_mult = (slider15 == 0) ? 0.5 : (slider15 == 1) ? 1.0 : (slider15 == 2) ? 2.0 : (slider15 == 3) ? 4.0 : 8.0;
   
   // Detect speed change and reset state to prevent timing glitches
   speed_mult != last_speed_mult ? (
     last_speed_mult >= 0 ? ( // Don't reset on first run
-      send_note_off();
+      send_note_off(0);
+      send_harmony_note_off(0);
       // Always clean up held notes and pedal (functions have internal guards)
       release_all_held_notes();
       send_pedal_off();
@@ -1486,13 +1734,13 @@ build_chord_tones();
   );
 
   // Detect pedal modeling toggle - clean up when disabled
-  slider19 != last_pedal_modeling ? (
-    last_pedal_modeling >= 0 && slider19 == 0 ? (
+  slider20 != last_pedal_modeling ? (
+    last_pedal_modeling >= 0 && slider20 == 0 ? (
       // Pedal modeling just turned OFF - clean up any held notes and pedal state
       release_all_held_notes();
       send_pedal_off();
     );
-    last_pedal_modeling = slider19;
+    last_pedal_modeling = slider20;
   );
   
   scaled_beat_pos = beat_position * speed_mult;
@@ -1502,14 +1750,14 @@ build_chord_tones();
 
   // Absolute Grid Sequencing
   // Calculate which chord we are on based on absolute beat position
-  beats_per_chord = floor(slider14 * 4 * speed_mult);
+  beats_per_chord = floor(slider13 * 4 * speed_mult);
   
   // Handle negative beats (pre-roll) by clamping to 0
   abs_beat = max(0, beat_num);
   
   // Calculate progression position
   total_chords_passed = floor(abs_beat / beats_per_chord);
-  prog_chord_index = total_chords_passed % slider9;
+  prog_chord_index = total_chords_passed % slider8;
   prog_beat_counter = abs_beat % beats_per_chord;
   
   // Update current chord
@@ -1520,7 +1768,9 @@ build_chord_tones();
     prog_current_chord = new_chord;
     current_chord_idx = prog_current_chord;
     build_chord_tones();
-    // Always clean up held notes and pedal on chord change (functions have internal guards)
+    // Always clean up notes, held notes and pedal on chord change (functions have internal guards)
+    send_note_off(0);
+    send_harmony_note_off(0);
     release_all_held_notes();
     send_pedal_off();
     // Reset rest so new chord starts immediately if we were waiting
@@ -1536,27 +1786,32 @@ while(midirecv(offset, msg1, msg2, msg3)) (
   midisend(offset, msg1, msg2, msg3);
 );
 
-(slider20 == 1 && play_position > 0) ? ( // Generation enabled (skip if stopped)
+(slider21 == 1 && play_position > 0) ? ( // Generation enabled (skip if stopped)
   // Calculate current 8th-note slot from beat position
   current_eighth = floor(scaled_beat_pos * 2);
 
   // First playback after init/stop - send pedal off to clear any lingering state
   last_beat_position < 0 ? (
     // Force pedal off regardless of tracked state (clears external lingering pedal)
-    midisend(0, $xB0 + (slider21 > 0 ? slider21 - 1 : 0), 64, 0);
+    midisend(0, $xB0 + (slider22 > 0 ? slider22 - 1 : 0), 64, 0);
     pedal_down = 0;
     held_count = 0;
+    current_sample_pos = play_position * srate;  // Initialize sample position tracker
   );
 
   // Detect loop or seek (beat position jumped backwards or significantly forwards)
   (last_beat_position >= 0 && (beat_position < last_beat_position || beat_position > last_beat_position + 4)) ? (
     // Reset phrase state on seek/loop
-    send_note_off();
+    send_note_off(0);
+    send_harmony_note_off(0);
     // Always clean up held notes and pedal (functions have internal guards)
     release_all_held_notes();
     send_pedal_off();
+    clear_pending_notes();
+    current_sample_pos = play_position * srate;  // Resync sample position
     phrase_active = 0;
     between_phrase_rest = 0;
+    last_phrase_end_velocity = -1;
   );
   last_beat_position = beat_position;
 
@@ -1584,7 +1839,7 @@ while(midirecv(offset, msg1, msg2, msg3)) (
         phrase_slot_index = 0;
         add_phrase_to_viz();
         // Press pedal at phrase start (only when pedal modeling enabled)
-        slider19 == 1 ? (
+        slider20 == 1 ? (
           send_pedal_on();
           // Reset mud tracker for playback
           harmonic_mud = 0;
@@ -1595,7 +1850,7 @@ while(midirecv(offset, msg1, msg2, msg3)) (
       phrase_slot_index = current_eighth - phrase_start_eighth;
 
       // Check and release any held notes that should end at this eighth (pedal modeling only)
-      slider19 == 1 ? check_and_release_held_notes(current_eighth);
+      slider20 == 1 ? check_and_release_held_notes(current_eighth);
 
       // Still within phrase?
       phrase_slot_index < phrase_slot_count ? (
@@ -1604,7 +1859,7 @@ while(midirecv(offset, msg1, msg2, msg3)) (
         velocity = phrase_velocities[phrase_slot_index];
 
         // Handle pedal state from schedule (pedal modeling only)
-        slider19 == 1 ? (
+        slider20 == 1 ? (
           phrase_pedal[phrase_slot_index] == 0 ? (
             // Scheduled pedal lift - clear non-chord tones
             send_pedal_off();
@@ -1618,32 +1873,78 @@ while(midirecv(offset, msg1, msg2, msg3)) (
         // Play if there's a note (0 = rest, -1 velocity = sustain)
         velocity != -1 ? (
           note > 0 ? (
-            // Only send note-off if the previous note isn't being held (pedal modeling check)
-            slider19 == 1 ? (
-              !is_being_held(note_playing) ? send_note_off();
+            // Handle humanization timing offset
+            humanize_offset = phrase_timing_offset[phrase_slot_index];
+
+            humanize_offset < samplesblock ? (
+              // Offset fits in current block - send immediately
+
+              // Only send note-off if the previous note isn't being held (pedal modeling check)
+              slider20 == 1 ? (
+                !is_being_held(note_playing) ? send_note_off(max(0, humanize_offset - 1));
+              ) : (
+                send_note_off(max(0, humanize_offset - 1));
+              );
+              // Also stop previous harmony note
+              send_harmony_note_off(max(0, humanize_offset - 1));
+
+              send_note_on(note, velocity, humanize_offset);
             ) : (
-              send_note_off();
+              // Offset exceeds block - queue for future block
+              queue_pending_note(note, velocity, current_sample_pos + humanize_offset, 0);
             );
-            send_note_on(note, velocity);
+
+            // === HARMONY NOTE PLAYBACK ===
+            harmony_note = phrase_harmony_note[phrase_slot_index];
+            harmony_note > 0 ? (
+              // Calculate harmony timing: main note offset + slight random delay
+              harmony_timing_offset = humanize_offset + floor((rand() * HARMONY_TIMING_OFFSET_MS) * srate / 1000);
+              harmony_vel = floor(velocity * HARMONY_VEL_REDUCTION);
+              harmony_vel = max(1, min(127, harmony_vel));
+
+              harmony_timing_offset < samplesblock ? (
+                // Send harmony note immediately
+                midisend(harmony_timing_offset, $x90 + (slider22 > 0 ? slider22 - 1 : 0), harmony_note, harmony_vel);
+                harmony_note_playing = harmony_note;
+              ) : (
+                // Queue harmony note for future block
+                queue_pending_note(harmony_note, harmony_vel, current_sample_pos + harmony_timing_offset, 1);
+              );
+
+              // If main note is held, also hold harmony note (Option C: harmony follows main)
+              slider20 == 1 && phrase_note_offs[phrase_slot_index] > phrase_slot_index ? (
+                held_duration = phrase_note_offs[phrase_slot_index] - phrase_slot_index;
+                held_duration = held_duration * phrase_duration_mod[phrase_slot_index];
+                held_duration = max(1, held_duration);
+                abs_end_eighth = phrase_start_eighth + phrase_slot_index + held_duration;
+                add_to_held_notes(harmony_note, abs_end_eighth);
+              );
+            );
 
             // Check if this note should be held (extended chord tone, pedal modeling only)
-            slider19 == 1 && phrase_note_offs[phrase_slot_index] > phrase_slot_index ? (
+            slider20 == 1 && phrase_note_offs[phrase_slot_index] > phrase_slot_index ? (
               // Calculate absolute eighth when this note should end
-              abs_end_eighth = phrase_start_eighth + phrase_note_offs[phrase_slot_index];
+              // Apply duration variation: scale the held duration by duration_mod
+              held_duration = phrase_note_offs[phrase_slot_index] - phrase_slot_index;
+              held_duration = held_duration * phrase_duration_mod[phrase_slot_index];
+              held_duration = max(1, held_duration);  // At least 1 eighth note
+              abs_end_eighth = phrase_start_eighth + phrase_slot_index + held_duration;
               add_to_held_notes(note, abs_end_eighth);
             );
           ) : (
             // Rest (0) - stop previous note if playing (and not held)
-            slider19 == 1 ? (
-              !is_being_held(note_playing) ? send_note_off();
+            slider20 == 1 ? (
+              !is_being_held(note_playing) ? send_note_off(0);
             ) : (
-              send_note_off();
+              send_note_off(0);
             );
+            send_harmony_note_off(0);
           );
         );
       ) : (
         // Phrase complete - start rest period
-        send_note_off();
+        send_note_off(0);
+        send_harmony_note_off(0);
         // Always clean up held notes and pedal (functions have internal guards)
         release_all_held_notes();
         send_pedal_off();
@@ -1656,13 +1957,20 @@ while(midirecv(offset, msg1, msg2, msg3)) (
   // Playback stopped or generation disabled - reset for next start
   last_beat_position >= 0 ? (
     // Clean up on stop
-    send_note_off();
+    send_note_off(0);
+    send_harmony_note_off(0);
     release_all_held_notes();
     send_pedal_off();
+    clear_pending_notes();
+    current_sample_pos = 0;
     last_beat_position = -1;
     phrase_active = 0;
+    last_phrase_end_velocity = -1;
   );
 );
+
+// Update absolute sample position for next block (for humanization queue)
+current_sample_pos += samplesblock;
 
 @gfx 450 300
 // ============================================
@@ -1721,7 +2029,7 @@ gfx_y += 20;
 gfx_x = gfx_w / 2;
 gfx_set(0.7, 0.7, 0.7, 1); // Dimmer white
 gfx_setfont(2);
-display_next_chord = prog_chords[(prog_chord_index + 1) % slider9];
+display_next_chord = prog_chords[(prog_chord_index + 1) % slider8];
 gfx_print_chord_name(display_next_chord);
 
 // 3. Phrase Visualization
@@ -1734,7 +2042,7 @@ gfx_set(0.15, 0.15, 0.15, 1);
 gfx_rect(margin, viz_y, viz_w, viz_h);
 
 // Settings for continuous view
-speed_mult = (slider16 == 0) ? 0.5 : (slider16 == 1) ? 1.0 : (slider16 == 2) ? 2.0 : (slider16 == 3) ? 4.0 : 8.0;
+speed_mult = (slider15 == 0) ? 0.5 : (slider15 == 1) ? 1.0 : (slider15 == 2) ? 2.0 : (slider15 == 3) ? 4.0 : 8.0;
 scaled_beat_pos = beat_position * speed_mult;
 
 beats_on_screen = 12; 
@@ -1809,7 +2117,7 @@ playhead_x = margin + ((scaled_beat_pos - left_edge_beat) / beats_on_screen) * v
 );
 
 // Status Overlay
-!slider20 ? (
+!slider21 ? (
   gfx_x = margin + 10; gfx_y = viz_y + 10;
   gfx_setfont(3); gfx_set(1, 0.5, 0.5, 1);
   gfx_drawstr("Generation Disabled");
@@ -1821,21 +2129,6 @@ playhead_x = margin + ((scaled_beat_pos - left_edge_beat) / beats_on_screen) * v
     gfx_printf("%d", between_phrase_rest);
   );
 );
-
-/*
-// Legacy Page View (Removed)
-/*
-(phrase_active && phrase_slot_count > 0) ? (
-  // ... (old drawing code)
-    n > 0 ? (
-      // Draw Note
-    );
-    i += 1;
-  );
-) : (
-  // ...
-);
-*/
 
 // 4. Footer / Status
 gfx_y = viz_y + viz_h + 10;
