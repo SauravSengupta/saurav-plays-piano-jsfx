@@ -1,6 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="SauravPlaysPiano JSFX" commit="53b1d19e96d5d8bda94c43b2aabae20ca40a1387">
+<index version="1" name="SauravPlaysPiano JSFX" commit="ec95d23e129d74b607a3b6b55be21de74ac6f78d">
   <category name="jsfx">
+    <reapack name="chord-timing-meter.jsfx" type="effect" desc="Chord Timing Meter">
+      <metadata>
+        <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
+{\colortbl;\red255\green0\blue0;\red0\green0\blue255;}
+\widowctrl\hyphauto
+
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Chord Timing Meter\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 A practice tool for pianists and keyboard players to visualize chord accuracy. When you play a chord, each note appears as a colored circle showing its timing (horizontal) and velocity (vertical) relative to the other notes. Perfect playing means all circles cluster in the center. Use this to identify weak points in your technique - whether you're rolling chords unevenly or hitting some notes harder than others.\par}
+}
+]]></description>
+      </metadata>
+      <version name="1.0.0" author="Saurav Plays Piano" time="2026-01-25T00:42:32Z">
+        <source>https://github.com/SauravSengupta/saurav-plays-piano-jsfx/raw/ec95d23e129d74b607a3b6b55be21de74ac6f78d/jsfx/chord-timing-meter.jsfx</source>
+      </version>
+    </reapack>
     <reapack name="midi-note-dropper.jsfx" type="effect" desc="MIDI Note Dropper">
       <metadata>
         <description><![CDATA[{\rtf1\ansi\deff0{\fonttbl{\f0 \fswiss Helvetica;}{\f1 \fmodern Courier;}}
