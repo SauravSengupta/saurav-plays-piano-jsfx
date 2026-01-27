@@ -38,10 +38,10 @@ A practice tool for pianists and keyboard players to visualize how accurately yo
 
 ## Screenshots
 
-Poor timing (190ms spread):
+Poor timing:
 
 ![Poor timing example](../assets/images/chord-timing-meter-poor.png)
 
-Good timing (3.3ms spread):
+Good timing:
 
 ![Good timing example](../assets/images/chord-timing-meter-good.png)
