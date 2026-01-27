@@ -5,14 +5,17 @@ about:
   # Chord Timing Meter
   A practice tool for pianists and keyboard players to visualize chord accuracy. When you play a chord, each note appears as a colored circle showing its timing (horizontal) and velocity (vertical) relative to the other notes. Perfect playing means all circles cluster in the center. Use this to identify weak points in your technique - whether you're rolling chords unevenly or hitting some notes harder than others.
 
-slider1:200<50,500,10>Time Range (±ms)
-slider2:50<10,200,5>Chord Window (ms)
+slider1:500<50,1000,10>Time Range (±ms)
+slider2:100<10,500,5>Chord Window (ms)
 slider3:20<5,50,1>Perfect Zone Time (±ms)
 slider4:5<1,15,1>Perfect Zone Velocity (±)
 slider5:14<10,30,1>Font Size
 slider6:0<0,1,1{Off,On}>Show Grid
 
 @init
+UI_SLIDER_MASK=(1<<6)-1;
+sliders_showing=1;
+
 // Memory allocation
 chord_notes = 0;        // Start of chord note storage (note, time, velocity) x 10
 max_chord_notes = 10;
@@ -294,11 +297,6 @@ showing_chord ? (
   vel_quality = min(1, display_vel_spread / 40);
   quality = (time_quality + vel_quality) / 2;
 
-  // Color: blue (good) to red (bad)
-  base_r = quality;
-  base_g = 0.2;
-  base_b = 1 - quality;
-
   // Draw each note
   circle_radius = max(min(30, min(plot_w, plot_h) / 15), slider5);
 
@@ -317,14 +315,12 @@ showing_chord ? (
     x = max(margin_x + circle_radius, min(margin_x + plot_w - circle_radius, x));
     y = max(margin_y + circle_radius, min(margin_y + plot_h - circle_radius, y));
 
-    // Unique color per note (hue based on note, saturation/brightness based on quality)
+    // Unique color per note (hue based on note)
     hue = (note_num % 12) / 12;
-    hsv_to_rgb(hue, 0.7 + quality * 0.3, 0.9);
-
-    // Mix with quality color
-    final_r = hsv_to_rgb.r * 0.5 + base_r * 0.5;
-    final_g = hsv_to_rgb.g * 0.5 + base_g * 0.5;
-    final_b = hsv_to_rgb.b * 0.5 + base_b * 0.5;
+    hsv_to_rgb(hue, 0.8, 0.9);
+    final_r = hsv_to_rgb.r;
+    final_g = hsv_to_rgb.g;
+    final_b = hsv_to_rgb.b;
 
     // Draw circle shadow
     gfx_set(0, 0, 0, 0.5);
@@ -422,3 +418,19 @@ showing_chord ? (
 // Draw border
 gfx_set(0.4, 0.4, 0.5, 1);
 gfx_rect(margin_x, margin_y, plot_w, plot_h, 0);
+
+// Hide Sliders
+has_click = (mouse_cap&1) && !(last_cap&1) ? 1 : 0;
+last_cap=mouse_cap;
+
+gfx_setfont(1, "Arial", slider5);
+gfx_set(0.7, 0.7, 0.9, 1);
+ex=gfx_w-12;
+ey = 12;
+gfx_rect(gfx_x=ex-gfx_texth/2,gfx_y=ey-gfx_texth/2,gfx_texth+1,gfx_texth+1,0);
+gfx_drawstr("?",1|4,gfx_x+gfx_texth+1,gfx_y+gfx_texth+1);
+
+has_click && abs(mouse_x-ex) < gfx_texth/2 && abs(mouse_y-ey) < gfx_texth/2 ? (
+  sliders_showing = slider_show(UI_SLIDER_MASK,-1) > 0;
+  has_click=0;
+);

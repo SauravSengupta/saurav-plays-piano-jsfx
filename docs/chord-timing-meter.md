@@ -18,8 +18,9 @@ A practice tool for pianists and keyboard players to visualize how accurately yo
 - **Horizontal axis**: Shows timing differences in milliseconds. Notes played earlier appear left, later notes appear right. Perfect simultaneity means all circles align vertically in the center.
 - **Vertical axis**: Shows velocity (intensity) differences. Notes played harder appear higher, softer notes lower. Even pressure means all circles align horizontally in the center.
 - **Perfect Zone**: A blue rectangle in the center shows the target area. When all notes land inside, you get a "PERFECT!" rating.
-- **Color coding**: Each pitch class (C, C#, D, etc.) has a unique hue. Colors shift toward blue when timing is good, toward red when timing is poor.
+- **Color coding**: Each pitch class (C, C#, D, etc.) has a unique hue.
 - **Quality feedback**: Displays "PERFECT!", "Good", "Fair", or "Needs work" based on timing and velocity spread.
+- **Hide Sliders**: Click the "?" button in the top-right corner to toggle the visibility of the slider controls.
 
 ## Use Cases
 
