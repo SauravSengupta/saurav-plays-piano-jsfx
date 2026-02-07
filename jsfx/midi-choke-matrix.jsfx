@@ -1,0 +1,546 @@
+version: 1.0.0
+desc: MIDI Choke Matrix
+author: Saurav Plays Piano
+about:
+  # MIDI Choke Matrix
+  Define which MIDI notes silence (choke) other notes via a 128x128 configurable matrix. When a note-on is received, the plugin sends note-offs for any active notes marked in that note's row. Useful for drum kits (closed hi-hat chokes open hi-hat), creating monophonic behavior for specific note ranges, or ensuring certain samples never overlap.
+
+// MIDI Choke Matrix
+// Copyright (c) 2026 Saurav Plays Piano
+// Licensed under the MIT License
+//
+// Define which MIDI notes silence (choke) other notes via a configurable matrix.
+// When a note-on is received, the plugin checks the matrix and sends note-offs
+// for any active notes that should be choked.
+//
+// Features:
+// - 128x128 choke matrix with 16x16 navigable viewport
+// - Click cells to toggle choke relationships
+// - Click row/column labels to toggle entire rows/columns
+// - Reset (clear all) and All (fill all) buttons
+// - Channel selector (All or specific channel 1-16)
+// - Active note highlighting on axes
+
+in_pin:none
+out_pin:none
+
+options:no_meter
+
+@init
+// Matrix storage: 128 rows × 4 integers (32 bits each) = 512 values
+matrix = 0;  // matrix[row * 4 + chunk]
+
+// Active note tracking: 16 channels × 128 notes = 2048 values
+active = 512;  // active[channel * 128 + note]
+
+// View state - NOT initialized here, handled in @gfx
+// view_x, view_y persist via @serialize
+
+// Channel selector: 0 = All, 1-16 = specific channel
+// Not initialized here either
+
+// Initialization flag - will be 0 until first @serialize save
+// initialized = 0;
+
+// Mouse state
+last_mouse_cap = 0;
+
+// UI constants
+grid_x = 50;
+grid_y = 70;
+cell_size = 18;
+grid_count = 16;
+
+// Note names
+note_names = 2560;  // String buffer for note names
+
+// ============================================
+// Matrix bit operations
+// ============================================
+
+function get_matrix_bit(row, col) local(chunk, bit, idx) (
+  chunk = (col / 32) | 0;
+  bit = col - chunk * 32;
+  idx = row * 4 + chunk;
+  (matrix[idx] & (1 << bit)) != 0;
+);
+
+function set_matrix_bit(row, col, val) local(chunk, bit, idx, mask) (
+  chunk = (col / 32) | 0;
+  bit = col - chunk * 32;
+  idx = row * 4 + chunk;
+  mask = 1 << bit;
+  val ? (
+    matrix[idx] = matrix[idx] | mask;
+  ) : (
+    // Clear bit: set it first, then subtract
+    matrix[idx] = (matrix[idx] | mask) - mask;
+  );
+);
+
+function toggle_matrix_bit(row, col) (
+  set_matrix_bit(row, col, !get_matrix_bit(row, col));
+);
+
+// ============================================
+// Active note tracking
+// ============================================
+
+function get_active(channel, note) (
+  active[channel * 128 + note];
+);
+
+function set_active(channel, note, val) (
+  active[channel * 128 + note] = val;
+);
+
+// Check if note is active (respects channel selector)
+function is_note_active(note) local(ch, result) (
+  result = 0;
+  channel_sel == 0 ? (
+    // Check all channels
+    ch = 0;
+    loop(16,
+      get_active(ch, note) ? result = 1;
+      ch += 1;
+    );
+  ) : (
+    // Check specific channel
+    result = get_active(channel_sel - 1, note);
+  );
+  result;
+);
+
+// ============================================
+// Matrix operations
+// ============================================
+
+function clear_matrix() local(i) (
+  i = 0;
+  loop(512,
+    matrix[i] = 0;
+    i += 1;
+  );
+);
+
+function fill_matrix() local(row, col) (
+  row = 0;
+  loop(128,
+    col = 0;
+    loop(128,
+      row != col ? set_matrix_bit(row, col, 1);
+      col += 1;
+    );
+    row += 1;
+  );
+);
+
+// ============================================
+// UI Helper functions
+// ============================================
+
+function mouse_in_rect(x, y, w, h) (
+  mouse_x >= x && mouse_x < x + w && mouse_y >= y && mouse_y < y + h;
+);
+
+function draw_note_name(note) local(octave, name_idx) (
+  octave = ((note / 12) | 0) - 2;
+  name_idx = note - ((note / 12) | 0) * 12;
+
+  name_idx == 0 ? gfx_drawstr("C") :
+  name_idx == 1 ? gfx_drawstr("C#") :
+  name_idx == 2 ? gfx_drawstr("D") :
+  name_idx == 3 ? gfx_drawstr("D#") :
+  name_idx == 4 ? gfx_drawstr("E") :
+  name_idx == 5 ? gfx_drawstr("F") :
+  name_idx == 6 ? gfx_drawstr("F#") :
+  name_idx == 7 ? gfx_drawstr("G") :
+  name_idx == 8 ? gfx_drawstr("G#") :
+  name_idx == 9 ? gfx_drawstr("A") :
+  name_idx == 10 ? gfx_drawstr("A#") :
+  name_idx == 11 ? gfx_drawstr("B");
+
+  // Only show octave number for C notes
+  name_idx == 0 ? gfx_drawnumber(octave, 0);
+);
+
+function draw_button(x, y, w, h, label) local(hover, clicked) (
+  hover = mouse_in_rect(x, y, w, h);
+  clicked = hover && mouse_click;
+
+  // Background
+  hover ? gfx_set(0.4, 0.4, 0.45, 1) : gfx_set(0.25, 0.25, 0.28, 1);
+  gfx_rect(x, y, w, h);
+
+  // Border
+  gfx_set(0.5, 0.5, 0.55, 1);
+  gfx_rect(x, y, w, 1);
+  gfx_rect(x, y, 1, h);
+  gfx_set(0.15, 0.15, 0.18, 1);
+  gfx_rect(x, y + h - 1, w, 1);
+  gfx_rect(x + w - 1, y, 1, h);
+
+  // Label
+  gfx_set(0.9, 0.9, 0.9, 1);
+  gfx_measurestr(label, label_w, label_h);
+  gfx_x = x + (w - label_w) / 2;
+  gfx_y = y + (h - label_h) / 2;
+  gfx_drawstr(label);
+
+  clicked;
+);
+
+function draw_arrow_button(x, y, w, h, direction) local(hover, clicked, cx, cy) (
+  hover = mouse_in_rect(x, y, w, h);
+  clicked = hover && mouse_click;
+
+  // Background
+  hover ? gfx_set(0.35, 0.35, 0.4, 1) : gfx_set(0.2, 0.2, 0.23, 1);
+  gfx_rect(x, y, w, h);
+
+  // Draw arrow
+  gfx_set(0.8, 0.8, 0.8, 1);
+  cx = x + w / 2;
+  cy = y + h / 2;
+
+  direction == 0 ? ( // Up
+    gfx_triangle(cx, cy - 4, cx - 4, cy + 2, cx + 4, cy + 2);
+  ) :
+  direction == 1 ? ( // Down
+    gfx_triangle(cx, cy + 4, cx - 4, cy - 2, cx + 4, cy - 2);
+  ) :
+  direction == 2 ? ( // Left
+    gfx_triangle(cx - 4, cy, cx + 2, cy - 4, cx + 2, cy + 4);
+  ) :
+  direction == 3 ? ( // Right
+    gfx_triangle(cx + 4, cy, cx - 2, cy - 4, cx - 2, cy + 4);
+  );
+
+  clicked;
+);
+
+// ============================================
+// Row/Column toggle logic
+// ============================================
+
+function toggle_row(row) local(col, any_off) (
+  // Check if any cell in row is off (excluding diagonal)
+  any_off = 0;
+  col = 0;
+  loop(128,
+    row != col && !get_matrix_bit(row, col) ? any_off = 1;
+    col += 1;
+  );
+
+  // Set all to on if any were off, otherwise all off
+  col = 0;
+  loop(128,
+    row != col ? set_matrix_bit(row, col, any_off);
+    col += 1;
+  );
+);
+
+function toggle_col(col) local(row, any_off) (
+  // Check if any cell in column is off (excluding diagonal)
+  any_off = 0;
+  row = 0;
+  loop(128,
+    row != col && !get_matrix_bit(row, col) ? any_off = 1;
+    row += 1;
+  );
+
+  // Set all to on if any were off, otherwise all off
+  row = 0;
+  loop(128,
+    row != col ? set_matrix_bit(row, col, any_off);
+    row += 1;
+  );
+);
+
+// ============================================
+// @serialize
+// ============================================
+
+@serialize
+file_var(0, initialized);
+file_var(0, view_x);
+file_var(0, view_y);
+file_var(0, channel_sel);
+
+i = 0;
+loop(512,
+  file_var(0, matrix[i]);
+  i += 1;
+);
+
+// Mark as initialized after first save
+initialized = 1;
+
+// ============================================
+// @gfx
+// ============================================
+
+@gfx 400 410
+
+// Set defaults on first run (before any project save/load)
+initialized == 0 ? (
+  view_x = 32;
+  view_y = 32;
+  channel_sel = 0;
+  initialized = 1;
+);
+
+gfx_clear = 0x1a1a1e;
+gfx_setfont(1, "Arial", 13);
+
+// Mouse click detection
+mouse_click = (mouse_cap & 1) && !(last_mouse_cap & 1);
+last_mouse_cap = mouse_cap;
+
+// ============================================
+// Draw D-pad navigation (top-left)
+// ============================================
+
+dpad_x = 8;
+dpad_y = 8;
+dpad_btn = 16;
+
+// Up
+draw_arrow_button(dpad_x + dpad_btn, dpad_y, dpad_btn, dpad_btn, 0) ? (
+  view_y = max(0, view_y - 16);
+);
+// Down
+draw_arrow_button(dpad_x + dpad_btn, dpad_y + dpad_btn * 2, dpad_btn, dpad_btn, 1) ? (
+  view_y = min(112, view_y + 16);
+);
+// Left
+draw_arrow_button(dpad_x, dpad_y + dpad_btn, dpad_btn, dpad_btn, 2) ? (
+  view_x = max(0, view_x - 16);
+);
+// Right
+draw_arrow_button(dpad_x + dpad_btn * 2, dpad_y + dpad_btn, dpad_btn, dpad_btn, 3) ? (
+  view_x = min(112, view_x + 16);
+);
+
+// Center indicator
+gfx_set(0.15, 0.15, 0.18, 1);
+gfx_rect(dpad_x + dpad_btn, dpad_y + dpad_btn, dpad_btn, dpad_btn);
+
+// ============================================
+// Draw column labels (top) - clickable
+// ============================================
+
+col = 0;
+loop(grid_count,
+  note_choked = view_x + col;
+  lx = grid_x + col * cell_size;
+  ly = grid_y - 18;
+  lw = cell_size;
+  lh = 16;
+
+  // Hover highlight
+  mouse_in_rect(lx, ly, lw, lh) ? (
+    gfx_set(0.3, 0.3, 0.35, 1);
+    gfx_rect(lx, ly, lw, lh);
+
+    mouse_click ? toggle_col(note_choked);
+  );
+
+  // Draw label (note number) - highlight if active
+  is_note_active(note_choked) ? (
+    gfx_set(0.4, 0.8, 1.0, 1);  // Bright cyan when active
+  ) : (
+    gfx_set(0.7, 0.7, 0.7, 1);  // Normal grey
+  );
+  gfx_x = lx + 2;
+  gfx_y = ly + 1;
+  gfx_drawnumber(note_choked, 0);
+
+  col += 1;
+);
+
+// ============================================
+// Draw row labels (left) - clickable
+// ============================================
+
+row = 0;
+loop(grid_count,
+  note_choking = view_y + row;
+  lx = grid_x - 28;
+  ly = grid_y + row * cell_size;
+  lw = 26;
+  lh = cell_size;
+
+  // Hover highlight
+  mouse_in_rect(lx, ly, lw, lh) ? (
+    gfx_set(0.3, 0.3, 0.35, 1);
+    gfx_rect(lx, ly, lw, lh);
+
+    mouse_click ? toggle_row(note_choking);
+  );
+
+  // Draw label (note number) - highlight if active
+  is_note_active(note_choking) ? (
+    gfx_set(0.4, 0.8, 1.0, 1);  // Bright cyan when active
+  ) : (
+    gfx_set(0.7, 0.7, 0.7, 1);  // Normal grey
+  );
+  gfx_x = lx + 2;
+  gfx_y = ly + 2;
+  gfx_drawnumber(note_choking, 0);
+
+  row += 1;
+);
+
+// ============================================
+// Draw grid cells
+// ============================================
+
+row = 0;
+loop(grid_count,
+  col = 0;
+  loop(grid_count,
+    cx = grid_x + col * cell_size;
+    cy = grid_y + row * cell_size;
+
+    note_choking = view_y + row;
+    note_choked = view_x + col;
+    is_diagonal = (note_choking == note_choked);
+    is_set = get_matrix_bit(note_choking, note_choked);
+
+    // Cell background
+    is_diagonal ? (
+      gfx_set(0.12, 0.12, 0.14, 1);  // Diagonal - greyed, inactive
+    ) : is_set ? (
+      gfx_set(0.85, 0.85, 0.9, 1);   // Active - bright
+    ) : (
+      gfx_set(0.22, 0.22, 0.25, 1);  // Inactive - dark
+    );
+
+    gfx_rect(cx + 1, cy + 1, cell_size - 2, cell_size - 2);
+
+    // Grid lines
+    gfx_set(0.1, 0.1, 0.12, 1);
+    gfx_rect(cx, cy, cell_size, 1);
+    gfx_rect(cx, cy, 1, cell_size);
+
+    // Handle click (not on diagonal)
+    !is_diagonal && mouse_click && mouse_in_rect(cx, cy, cell_size, cell_size) ? (
+      toggle_matrix_bit(note_choking, note_choked);
+    );
+
+    col += 1;
+  );
+  row += 1;
+);
+
+// Outer border
+gfx_set(0.4, 0.4, 0.45, 1);
+gfx_rect(grid_x, grid_y, grid_count * cell_size, 1);
+gfx_rect(grid_x, grid_y, 1, grid_count * cell_size);
+gfx_rect(grid_x, grid_y + grid_count * cell_size, grid_count * cell_size + 1, 1);
+gfx_rect(grid_x + grid_count * cell_size, grid_y, 1, grid_count * cell_size);
+
+// ============================================
+// Draw buttons (bottom)
+// ============================================
+
+btn_y = grid_y + grid_count * cell_size + 15;
+btn_h = 22;
+
+// Reset button
+draw_button(grid_x, btn_y, 50, btn_h, "Reset") ? (
+  clear_matrix();
+);
+
+// All button
+draw_button(grid_x + 60, btn_y, 40, btn_h, "All") ? (
+  fill_matrix();
+);
+
+// Channel selector
+ch_x = grid_x + 115;
+ch_w = 70;
+
+gfx_set(0.25, 0.25, 0.28, 1);
+gfx_rect(ch_x, btn_y, ch_w, btn_h);
+
+// Border
+gfx_set(0.5, 0.5, 0.55, 1);
+gfx_rect(ch_x, btn_y, ch_w, 1);
+gfx_rect(ch_x, btn_y, 1, btn_h);
+gfx_set(0.15, 0.15, 0.18, 1);
+gfx_rect(ch_x, btn_y + btn_h - 1, ch_w, 1);
+gfx_rect(ch_x + ch_w - 1, btn_y, 1, btn_h);
+
+// Channel label
+gfx_set(0.9, 0.9, 0.9, 1);
+gfx_x = ch_x + 5;
+gfx_y = btn_y + 4;
+gfx_drawstr("Ch: ");
+channel_sel == 0 ? gfx_drawstr("All") : gfx_drawnumber(channel_sel, 0);
+
+// Channel selector click - cycle through options
+mouse_click && mouse_in_rect(ch_x, btn_y, ch_w, btn_h) ? (
+  channel_sel += 1;
+  channel_sel > 16 ? channel_sel = 0;
+);
+
+// ============================================
+// Display current range
+// ============================================
+
+gfx_set(0.5, 0.5, 0.55, 1);
+gfx_x = grid_x + 200;
+gfx_y = btn_y + 5;
+gfx_drawnumber(view_y, 0);
+gfx_drawstr("-");
+gfx_drawnumber(view_y + 15, 0);
+gfx_drawstr(" / ");
+gfx_drawnumber(view_x, 0);
+gfx_drawstr("-");
+gfx_drawnumber(view_x + 15, 0);
+
+// ============================================
+// @block - MIDI processing
+// ============================================
+
+@block
+while (midirecv(offset, msg1, msg2, msg3)) (
+  status = msg1 & $xF0;
+  chan = msg1 & $x0F;
+
+  // Check if we should process this channel
+  should_process = (channel_sel == 0) || (channel_sel == chan + 1);
+
+  should_process && status == $x90 && msg3 > 0 ? (
+    // Note On - check choke matrix
+    note_on = msg2;
+
+    // For each note in the choke row, send note-off if active
+    i = 0;
+    loop(128,
+      get_matrix_bit(note_on, i) && get_active(chan, i) ? (
+        midisend(offset, $x80 | chan, i, 0);
+        set_active(chan, i, 0);
+      );
+      i += 1;
+    );
+
+    // Mark this note as active and pass through
+    set_active(chan, note_on, 1);
+    midisend(offset, msg1, msg2, msg3);
+  ) :
+
+  should_process && ((status == $x80) || (status == $x90 && msg3 == 0)) ? (
+    // Note Off - update tracking and pass through
+    note_off = msg2;
+    set_active(chan, note_off, 0);
+    midisend(offset, msg1, msg2, msg3);
+  ) :
+
+  (
+    // All other messages pass through
+    midisend(offset, msg1, msg2, msg3);
+  );
+);

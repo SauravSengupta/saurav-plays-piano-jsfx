@@ -10,7 +10,8 @@ This is a collection of Reaper plugins I wrote to help me with some of my ambien
 
 | Plugin | Description |
 |--------|-------------|
-| [Chord Timing Meter](docs/chord-timing-meter.md) ⚠️ | Practice tool to visualize chord timing and velocity accuracy |
+| [Chord Timing Meter](docs/chord-timing-meter.md) | Practice tool to visualize chord timing and velocity accuracy |
+| [MIDI Choke Matrix](docs/midi-choke-matrix.md) ⚠️ | Define which MIDI notes silence other notes via a configurable matrix |
 | [MIDI Note Dropper](docs/midi-note-dropper.md) | Randomly drop notes for thinning patterns and adding controlled chaos |
 | [Phrase Maker](docs/phrase-maker.md) ⚠️ | Generative melody engine with chord awareness and piano roll visualization |
 
